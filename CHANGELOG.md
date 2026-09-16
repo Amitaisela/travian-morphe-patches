@@ -1,3 +1,9 @@
+## [1.1.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.1.0...v1.1.1) (2026-09-16)
+
+### 🐛 Bug Fixes
+
+* set real patch metadata (name, author, source) ([8e1e756](https://github.com/Amitaisela/travian-morphe-patches/commit/8e1e756051d99585a398b830c2fe45beec253b26))
+
 ## [1.1.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.0.1...v1.1.0) (2026-09-16)
 
 ### ✨ New Features
