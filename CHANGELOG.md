@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.0.0...v1.0.1) (2026-09-16)
+
+### 🐛 Bug Fixes
+
+* simplify release config to single main branch (no dev branch exists) ([9097347](https://github.com/Amitaisela/travian-morphe-patches/commit/9097347ec02c92cd6bfa95030eb8920224673140))
+
 ## 1.0.0 (2026-09-15)
 
 ### 🐛 Bug Fixes
