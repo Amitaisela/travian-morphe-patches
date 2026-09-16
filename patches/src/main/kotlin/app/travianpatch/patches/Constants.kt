@@ -12,6 +12,7 @@ object Constants {
         appIconColor = 0x7A1F1F,
         targets = listOf(
             AppTarget(version = "4.0.0"),
+            AppTarget(version = "4.0.1"),
             // Any other version is allowed to try (Unity bootstrap layer rarely changes).
             AppTarget(version = null, isExperimental = true)
         )
