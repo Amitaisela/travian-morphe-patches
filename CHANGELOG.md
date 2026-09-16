@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.0.1...v1.1.0) (2026-09-16)
+
+### ✨ New Features
+
+* declare support for Travian: Legends v4.0.1 ([d291201](https://github.com/Amitaisela/travian-morphe-patches/commit/d291201a609b4947de1a82c8c600a39767978c35))
+
 ## [1.0.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.0.0...v1.0.1) (2026-09-16)
 
 ### 🐛 Bug Fixes
