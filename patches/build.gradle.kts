@@ -1,14 +1,13 @@
-group = "app.template"
+group = "app.travianpatch"
 
 patches {
-    // TODO: Update this section with your project details.
     about {
-        name = "UserXYZ Patches"
-        description = "Patches for apps I like"
-        source = "git@github.com:UserXYZ/morphe-patches.git"
-        author = "Awesome dev"
+        name = "Travian Notifier Patches"
+        description = "Adds build/troop queue completion notifications to Travian: Legends."
+        source = "https://github.com/Amitaisela/travian-morphe-patches"
+        author = "Mentat"
         contact = "na"
-        website = "na"
+        website = "https://github.com/Amitaisela/travian-morphe-patches"
         license = "GPLv3"
     }
 }
