@@ -41,6 +41,7 @@ public final class NotifierBootstrap {
 
     private static final String TAG = "TravianNotifier";
     static final String CHANNEL_ID = "travian_notifier";
+    static final String ATTACK_CHANNEL_ID = "travian_attacks";
     private static final String UNIQUE_WORK_NAME = "travian-notifier-check";
     private static final String PREFS_NAME = "travian_notifier_setup";
     private static final String PREF_ASKED_PERMISSIONS = "asked_permissions_v1";
@@ -169,6 +170,11 @@ public final class NotifierBootstrap {
                     CHANNEL_ID, "Travian timers", NotificationManager.IMPORTANCE_DEFAULT);
             channel.setDescription("Alerts when a building, upgrade, or troop queue finishes.");
             nm.createNotificationChannel(channel);
+
+            NotificationChannel attacks = new NotificationChannel(
+                    ATTACK_CHANNEL_ID, "Incoming attacks", NotificationManager.IMPORTANCE_HIGH);
+            attacks.setDescription("Alerts when an attack or raid is heading for one of your villages.");
+            nm.createNotificationChannel(attacks);
         }
     }
 }

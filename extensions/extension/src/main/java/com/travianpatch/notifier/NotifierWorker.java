@@ -22,8 +22,10 @@ import androidx.work.WorkerParameters;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -74,6 +76,10 @@ public class NotifierWorker extends Worker {
     private static final String KEY_WORLD_HOST = "world_host";
     private static final String KEY_WORLD_TOKEN = "world_token";
     private static final String KEY_WORLD_TOKEN_EXP = "world_token_exp";
+    private static final String KEY_ANNOUNCED_ATTACKS = "announced_attacks";
+    /** If the game rejects the movements part of the poll query, skip it until this time (epoch ms). */
+    private static final String KEY_MOVEMENTS_OFF_UNTIL = "movements_off_until";
+    private static final String ATTACK_CHANNEL_ID = NotifierBootstrap.ATTACK_CHANNEL_ID;
     /** An event that disappears earlier than this before its finish time was cancelled or sped up. */
     private static final long EARLY_TOLERANCE_MS = 30_000L;
 
@@ -311,35 +317,68 @@ public class NotifierWorker extends Worker {
     // polling
     // ------------------------------------------------------------------
 
-    private static final String POLL_QUERY =
-            "{ \"query\": \"query { p: ownPlayer { villages { id name x y "
-            + "buildEvents { id buildingTypeId aspiredLevel timestamp status isActive } "
-            + "trainingTroops { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } "
-            + "stable { trainingUnits { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
-            + "barracks { trainingUnits { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
-            + "} } }\" }";
+    private static String pollQuery(boolean withMovements) {
+        return "{ \"query\": \"query { p: ownPlayer { villages { id name x y "
+                + "buildEvents { id buildingTypeId aspiredLevel timestamp status isActive } "
+                + "trainingTroops { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } "
+                + "stable { trainingUnits { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
+                + "barracks { trainingUnits { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
+                + (withMovements ? AttackAlerts.MOVEMENTS_SELECTION + " " : "")
+                + "} } }\" }";
+    }
 
-    private void poll(OkHttpClient http, String gameworldHost) throws Exception {
+    private JSONObject runPollQuery(OkHttpClient http, String gameworldHost, boolean withMovements) throws Exception {
         Request req = new Request.Builder()
                 .url(gameworldHost + "/api/v1/graphql")
-                .post(TravianApi.jsonBody(POLL_QUERY))
+                .post(TravianApi.jsonBody(pollQuery(withMovements)))
                 .build();
-        JSONObject resp = TravianApi.executeJson(http, req);
+        return TravianApi.executeJson(http, req);
+    }
+
+    private boolean movementsEnabled() {
+        return System.currentTimeMillis() >= statePrefs().getLong(KEY_MOVEMENTS_OFF_UNTIL, 0);
+    }
+
+    private static String errorSummary(JSONObject resp) {
+        JSONArray errors = resp.optJSONArray("errors");
+        String text = errors != null ? errors.toString() : "no errors field";
+        return text.length() > 300 ? text.substring(0, 300) + "..." : text;
+    }
+
+    private void poll(OkHttpClient http, String gameworldHost) throws Exception {
+        boolean withMovements = movementsEnabled();
+        JSONObject resp = runPollQuery(http, gameworldHost, withMovements);
         JSONObject data = resp.optJSONObject("data");
+        if (data == null && withMovements) {
+            // The movements part may have been rejected (schema mismatch). Retry without it so
+            // build/troop notifications keep working, and stop asking for it for a day.
+            Log.w(TAG, "poll with movements returned no data (" + errorSummary(resp) + "), retrying without");
+            resp = runPollQuery(http, gameworldHost, false);
+            data = resp.optJSONObject("data");
+            if (data != null) {
+                statePrefs().edit().putLong(KEY_MOVEMENTS_OFF_UNTIL,
+                        System.currentTimeMillis() + TimeUnit.DAYS.toMillis(1)).apply();
+                withMovements = false;
+            }
+        }
         if (data == null) {
-            throw new AuthExpiredException("no data in poll response: " + resp);
+            throw new AuthExpiredException("no data in poll response: " + errorSummary(resp));
         }
         JSONObject player = data.getJSONObject("p");
         JSONArray villages = player.getJSONArray("villages");
 
         Map<String, TrackedEvent> tracked = loadTrackedState();
         Map<String, TrackedEvent> stillActive = new HashMap<String, TrackedEvent>();
+        List<AttackAlerts.Alert> attacks = new ArrayList<AttackAlerts.Alert>();
 
         for (int i = 0; i < villages.length(); i++) {
             JSONObject village = villages.getJSONObject(i);
             String villageName = village.optString("name", "your village");
             int vx = village.optInt("x", 0);
             int vy = village.optInt("y", 0);
+            if (withMovements) {
+                attacks.addAll(AttackAlerts.parse(village, System.currentTimeMillis()));
+            }
 
             JSONArray buildEvents = village.optJSONArray("buildEvents");
             if (buildEvents != null) {
@@ -380,8 +419,66 @@ public class NotifierWorker extends Worker {
             notify(describeCompletion(gone));
         }
         saveTrackedState(stillActive);
+        if (withMovements) {
+            announceAttacks(attacks);
+        }
 
         Log.i(TAG, "poll ok: villages=" + villages.length() + " active=" + stillActive.size());
+    }
+
+    /** Notifies once per incoming attack, the first time it is seen. */
+    private void announceAttacks(List<AttackAlerts.Alert> attacks) {
+        long now = System.currentTimeMillis();
+        Map<String, Long> announced = loadAnnouncedAttacks();
+        int fresh = 0;
+        for (AttackAlerts.Alert alert : attacks) {
+            if (announced.containsKey(alert.key)) {
+                continue;
+            }
+            postNotification(ATTACK_CHANNEL_ID, AttackAlerts.title(alert), AttackAlerts.describe(alert, now),
+                    alert.key.hashCode(), NotificationCompat.PRIORITY_MAX);
+            announced.put(alert.key, alert.arrivalMs);
+            fresh++;
+        }
+        // forget attacks that arrived over an hour ago, so the stored list stays tiny
+        Iterator<Map.Entry<String, Long>> it = announced.entrySet().iterator();
+        while (it.hasNext()) {
+            if (it.next().getValue() < now - TimeUnit.HOURS.toMillis(1)) {
+                it.remove();
+            }
+        }
+        saveAnnouncedAttacks(announced);
+        Log.i(TAG, "incoming attacks: " + attacks.size() + " (" + fresh + " new)");
+    }
+
+    private Map<String, Long> loadAnnouncedAttacks() {
+        Map<String, Long> result = new HashMap<String, Long>();
+        try {
+            String json = statePrefs().getString(KEY_ANNOUNCED_ATTACKS, null);
+            if (json != null) {
+                JSONObject root = new JSONObject(json);
+                Iterator<String> keys = root.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    result.put(key, root.getLong(key));
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "failed to load announced attacks, starting fresh: " + e);
+        }
+        return result;
+    }
+
+    private void saveAnnouncedAttacks(Map<String, Long> announced) {
+        try {
+            JSONObject root = new JSONObject();
+            for (Map.Entry<String, Long> entry : announced.entrySet()) {
+                root.put(entry.getKey(), entry.getValue().longValue());
+            }
+            statePrefs().edit().putString(KEY_ANNOUNCED_ATTACKS, root.toString()).apply();
+        } catch (Exception e) {
+            Log.w(TAG, "failed to save announced attacks: " + e);
+        }
     }
 
     private void collectQueue(JSONArray queue, String kind, String villageName, int vx, int vy,
@@ -508,6 +605,11 @@ public class NotifierWorker extends Worker {
     // ------------------------------------------------------------------
 
     private void notify(String text) {
+        postNotification(CHANNEL_ID, "Travian: Legends", text,
+                (int) System.currentTimeMillis(), NotificationCompat.PRIORITY_HIGH);
+    }
+
+    private void postNotification(String channelId, String title, String text, int id, int priority) {
         Context ctx = getApplicationContext();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             int granted = ctx.checkSelfPermission("android.permission.POST_NOTIFICATIONS");
@@ -517,13 +619,14 @@ public class NotifierWorker extends Worker {
             }
         }
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
-                .setContentTitle("Travian: Legends")
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, channelId)
+                .setContentTitle(title)
                 .setContentText(text)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setSmallIcon(android.R.drawable.ic_popup_reminder)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(priority)
                 .setAutoCancel(true);
-        nm.notify((int) System.currentTimeMillis(), builder.build());
-        Log.i(TAG, "notified: " + text);
+        nm.notify(id, builder.build());
+        Log.i(TAG, "notified: " + title + " " + text);
     }
 }
