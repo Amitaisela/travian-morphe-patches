@@ -24,9 +24,11 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Cookie;
@@ -395,15 +397,18 @@ public class NotifierWorker extends Worker {
                     }
                 }
             }
-            collectQueue(village.optJSONArray("trainingTroops"), "train", villageName, vx, vy, tracked, stillActive);
+            // The game lists one training both under its building (barracks/stable) and in the general
+            // trainingTroops list. Read the specific ones first so it's counted (and labelled) once.
+            Set<String> seenTraining = new HashSet<String>();
             JSONObject stable = village.optJSONObject("stable");
             if (stable != null) {
-                collectQueue(stable.optJSONArray("trainingUnits"), "stable", villageName, vx, vy, tracked, stillActive);
+                collectQueue(stable.optJSONArray("trainingUnits"), "stable", villageName, vx, vy, tracked, stillActive, seenTraining);
             }
             JSONObject barracks = village.optJSONObject("barracks");
             if (barracks != null) {
-                collectQueue(barracks.optJSONArray("trainingUnits"), "barracks", villageName, vx, vy, tracked, stillActive);
+                collectQueue(barracks.optJSONArray("trainingUnits"), "barracks", villageName, vx, vy, tracked, stillActive, seenTraining);
             }
+            collectQueue(village.optJSONArray("trainingTroops"), "train", villageName, vx, vy, tracked, stillActive, seenTraining);
         }
 
         long now = System.currentTimeMillis();
@@ -482,7 +487,8 @@ public class NotifierWorker extends Worker {
     }
 
     private void collectQueue(JSONArray queue, String kind, String villageName, int vx, int vy,
-                               Map<String, TrackedEvent> tracked, Map<String, TrackedEvent> stillActive) {
+                               Map<String, TrackedEvent> tracked, Map<String, TrackedEvent> stillActive,
+                               Set<String> seenTraining) {
         if (queue == null) {
             return;
         }
@@ -490,6 +496,9 @@ public class NotifierWorker extends Worker {
             JSONObject ev = queue.optJSONObject(j);
             if (ev == null) {
                 continue;
+            }
+            if (!seenTraining.add(ev.optLong("eventId") + ":" + villageName)) {
+                continue; // already counted from this training's own building list
             }
             String id = kind + ":" + ev.optLong("eventId") + ":" + villageName;
             // keep the count as first observed -- unitsLeft counts down each poll
