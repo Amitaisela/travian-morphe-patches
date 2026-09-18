@@ -13,7 +13,7 @@ val travianNotifierPatch = bytecodePatch(
         "the building/unit name, level, and village. Uses the session you're already logged in " +
         "with in the game — no separate login, no password ever handled by this patch. Checks " +
         "run quietly in the background: one is scheduled for just after each build/training is " +
-        "due to finish, plus a safety check about every 15 minutes (Android may delay background " +
+        "due to finish, plus a regular check every 5 minutes (Android may delay background " +
         "work slightly). Nothing is shown unless something actually finished. The first time " +
         "you open the app it asks once for " +
         "notification permission and to exempt the app from battery optimization, so the " +

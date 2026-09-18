@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.util.Base64;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -35,16 +36,19 @@ import okhttp3.Request;
  * TravianSession), polls for build/troop queues, and fires a local
  * notification for anything that finished since the last check.
  *
- * Runs on two triggers, both plain WorkManager (no foreground service, no
- * persistent notification): a periodic safety net every ~15 minutes (the
- * platform minimum), and a one-shot check scheduled for just after the
- * earliest known finish time, so a completion is reported within seconds to
- * a minute instead of up to 15 minutes late. Android may still defer
- * background work, especially in deep sleep.
+ * Runs on plain WorkManager (no foreground service, no persistent
+ * notification): a chain of one-shot checks, each scheduling the next either
+ * for just after the earliest known finish time or in 5 minutes, whichever is
+ * sooner, so a completion is reported within seconds to a minute; plus a
+ * periodic check every ~15 minutes (the platform minimum) that restarts the
+ * chain if it ever stops. Android may still defer background work,
+ * especially in deep sleep.
  *
- * Tracked queue state is persisted to plain SharedPreferences between runs
- * since a fresh process may back each invocation; nothing stored there is
- * sensitive (village names and building ids only, no session or credentials).
+ * Tracked queue state (village names, building ids) and a short-lived (~2 hour)
+ * world token are persisted to this app's private SharedPreferences between
+ * runs, since a fresh process may back each invocation. The token is the same
+ * kind the game itself keeps in its own private storage; no password or
+ * long-lived credential is ever stored.
  */
 public class NotifierWorker extends Worker {
 
@@ -54,7 +58,7 @@ public class NotifierWorker extends Worker {
     private static final String STATE_KEY = "tracked_events";
     private static final long SESSION_SEED_TTL_MS = TimeUnit.DAYS.toMillis(3650);
 
-    private static final String NEXT_WORK_NAME = "travian-notifier-next";
+    static final String NEXT_WORK_NAME = "travian-notifier-next";
     private static final String KEY_RETRIES = "retries";
     /** Wait a few seconds past the finish time so the server has processed the completion. */
     private static final long SETTLE_BUFFER_MS = 3_000L;
@@ -63,6 +67,13 @@ public class NotifierWorker extends Worker {
     private static final long LAG_RETRY_MS = 20_000L;
     private static final int MAX_LAG_RETRIES = 5;
     private static final long MAX_SCHEDULE_AHEAD_MS = TimeUnit.DAYS.toMillis(2);
+    /** Regular re-check interval, used when nothing is due sooner (catches builds started elsewhere). */
+    private static final long POLL_INTERVAL_MS = TimeUnit.MINUTES.toMillis(5);
+    /** Don't reuse a cached world token that expires within this margin. */
+    private static final long TOKEN_MARGIN_MS = TimeUnit.MINUTES.toMillis(2);
+    private static final String KEY_WORLD_HOST = "world_host";
+    private static final String KEY_WORLD_TOKEN = "world_token";
+    private static final String KEY_WORLD_TOKEN_EXP = "world_token_exp";
     /** An event that disappears earlier than this before its finish time was cancelled or sped up. */
     private static final long EARLY_TOLERANCE_MS = 30_000L;
 
@@ -85,12 +96,29 @@ public class NotifierWorker extends Worker {
                 return Result.success();
             }
 
+            // Fast path: reuse the world token cached from the last full sign-in (one request per
+            // check). Only when it's missing, expired or rejected do we redo the full sign-in.
             SimpleCookieJar jar = new SimpleCookieJar();
             OkHttpClient http = TravianApi.newClient(jar);
-            String gameworldHost = resumeSession(http, jar, sessionCookie);
+            String gameworldHost = seedCachedWorldToken(jar);
+            if (gameworldHost != null) {
+                try {
+                    poll(http, gameworldHost);
+                    scheduleNextCheck();
+                    return Result.success();
+                } catch (AuthExpiredException e) {
+                    Log.i(TAG, "cached world token was rejected, signing in again");
+                    clearCachedWorldToken();
+                    jar = new SimpleCookieJar();
+                    http = TravianApi.newClient(jar);
+                }
+            }
+
+            gameworldHost = resumeSession(http, jar, sessionCookie);
             if (gameworldHost == null) {
                 return Result.success();
             }
+            cacheWorldToken(jar, gameworldHost);
 
             poll(http, gameworldHost);
             scheduleNextCheck();
@@ -113,10 +141,13 @@ public class NotifierWorker extends Worker {
         if (lagging && retries < MAX_LAG_RETRIES) {
             delayMs = LAG_RETRY_MS;
             nextRetries = retries + 1;
-        } else if (nextWakeMs != Long.MAX_VALUE && nextWakeMs - now <= MAX_SCHEDULE_AHEAD_MS) {
-            delayMs = Math.max(nextWakeMs - now, 0L) + SETTLE_BUFFER_MS;
         } else {
-            return; // nothing upcoming (or nothing trustworthy): the periodic check covers it
+            // Wake at the earliest known finish time, but never wait longer than the regular
+            // interval: that's how a build started elsewhere (e.g. on a PC) gets noticed.
+            long untilFinishMs = (nextWakeMs != Long.MAX_VALUE && nextWakeMs - now <= MAX_SCHEDULE_AHEAD_MS)
+                    ? Math.max(nextWakeMs - now, 0L) + SETTLE_BUFFER_MS
+                    : Long.MAX_VALUE;
+            delayMs = Math.min(untilFinishMs, POLL_INTERVAL_MS);
         }
 
         OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(NotifierWorker.class)
@@ -154,6 +185,72 @@ public class NotifierWorker extends Worker {
     // ------------------------------------------------------------------
     // session resume (reuses the game's own cookie, see TravianSession)
     // ------------------------------------------------------------------
+
+    /** The gameworld rejected our token (expired or revoked), as opposed to a transient failure. */
+    private static final class AuthExpiredException extends Exception {
+        AuthExpiredException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * If a still-valid world token from the last full sign-in is cached, puts it in the cookie
+     * jar and returns its gameworld host; otherwise returns null. The token is the same
+     * short-lived (~2 hour) session token the game itself holds, kept in this app's private
+     * storage like the game's own copy, and never contains a password.
+     */
+    private String seedCachedWorldToken(SimpleCookieJar jar) {
+        SharedPreferences prefs = statePrefs();
+        String host = prefs.getString(KEY_WORLD_HOST, null);
+        String token = prefs.getString(KEY_WORLD_TOKEN, null);
+        long expMs = prefs.getLong(KEY_WORLD_TOKEN_EXP, 0);
+        if (host == null || token == null || expMs - System.currentTimeMillis() < TOKEN_MARGIN_MS) {
+            return null;
+        }
+        jar.seed(TravianApi.hostOf(host), new Cookie.Builder()
+                .name("JWT")
+                .value(token)
+                .domain(TravianApi.hostOf(host))
+                .path("/")
+                .httpOnly()
+                .secure()
+                .expiresAt(expMs)
+                .build());
+        return host;
+    }
+
+    private void cacheWorldToken(SimpleCookieJar jar, String host) {
+        try {
+            String token = jar.getCookieValue(TravianApi.hostOf(host), "JWT");
+            long expMs = token != null ? jwtExpiryMs(token) : 0;
+            if (token == null || expMs <= System.currentTimeMillis()) {
+                return; // can't tell how long it's good for, so don't reuse it
+            }
+            statePrefs().edit()
+                    .putString(KEY_WORLD_HOST, host)
+                    .putString(KEY_WORLD_TOKEN, token)
+                    .putLong(KEY_WORLD_TOKEN_EXP, expMs)
+                    .apply();
+            Log.i(TAG, "cached world token, good for " + ((expMs - System.currentTimeMillis()) / 60000) + " min");
+        } catch (Exception e) {
+            Log.w(TAG, "couldn't cache the world token: " + e);
+        }
+    }
+
+    private void clearCachedWorldToken() {
+        statePrefs().edit().remove(KEY_WORLD_HOST).remove(KEY_WORLD_TOKEN).remove(KEY_WORLD_TOKEN_EXP).apply();
+    }
+
+    /** Reads the "exp" claim (epoch seconds) from a JWT's payload; 0 if it can't be read. */
+    private static long jwtExpiryMs(String jwt) throws Exception {
+        String[] parts = jwt.split("\\.");
+        if (parts.length < 2) {
+            return 0;
+        }
+        byte[] payload = Base64.decode(parts[1], Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP);
+        long exp = new JSONObject(new String(payload, "UTF-8")).optLong("exp", 0);
+        return exp > 0 ? exp * 1000L : 0;
+    }
 
     private String resumeSession(OkHttpClient http, SimpleCookieJar jar, String sessionCookie) throws Exception {
         String lobbyHost = TravianApi.hostOf(TravianApi.LOBBY_HOST);
@@ -225,7 +322,7 @@ public class NotifierWorker extends Worker {
         JSONObject resp = TravianApi.executeJson(http, req);
         JSONObject data = resp.optJSONObject("data");
         if (data == null) {
-            throw new IllegalStateException("no data in poll response: " + resp);
+            throw new AuthExpiredException("no data in poll response: " + resp);
         }
         JSONObject player = data.getJSONObject("p");
         JSONArray villages = player.getJSONArray("villages");

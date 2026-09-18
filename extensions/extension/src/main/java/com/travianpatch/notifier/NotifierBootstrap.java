@@ -18,7 +18,9 @@ import android.util.Log;
 import androidx.core.app.ActivityCompat;
 import androidx.work.Constraints;
 import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.ExistingWorkPolicy;
 import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
 import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 
@@ -149,8 +151,15 @@ public final class NotifierBootstrap {
                 NotifierWorker.class, minMinutes, TimeUnit.MINUTES)
                 .setConstraints(constraints)
                 .build();
-        WorkManager.getInstance(ctx.getApplicationContext())
-                .enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request);
+        WorkManager workManager = WorkManager.getInstance(ctx.getApplicationContext());
+        workManager.enqueueUniquePeriodicWork(UNIQUE_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request);
+
+        // Also start the check chain now if it isn't already pending: gives a first check right when
+        // the game opens and revives the chain if it ever stopped. KEEP leaves an existing one alone.
+        OneTimeWorkRequest startNow = new OneTimeWorkRequest.Builder(NotifierWorker.class)
+                .setConstraints(constraints)
+                .build();
+        workManager.enqueueUniqueWork(NotifierWorker.NEXT_WORK_NAME, ExistingWorkPolicy.KEEP, startNow);
     }
 
     private static void createChannel(Context ctx) {
