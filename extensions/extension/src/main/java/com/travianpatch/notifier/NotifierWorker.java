@@ -79,6 +79,8 @@ public class NotifierWorker extends Worker {
     private static final String KEY_WORLD_TOKEN = "world_token";
     private static final String KEY_WORLD_TOKEN_EXP = "world_token_exp";
     private static final String KEY_ANNOUNCED_ATTACKS = "announced_attacks";
+    private static final String KEY_REMINDED_ATTACKS = "reminded_attacks";
+    private static final String KEY_TRACKED_ARRIVALS = "tracked_arrivals";
     /** If the game rejects the movements part of the poll query, skip it until this time (epoch ms). */
     private static final String KEY_MOVEMENTS_OFF_UNTIL = "movements_off_until";
     private static final String ATTACK_CHANNEL_ID = NotifierBootstrap.ATTACK_CHANNEL_ID;
@@ -382,6 +384,7 @@ public class NotifierWorker extends Worker {
         Map<String, TrackedEvent> tracked = loadTrackedState();
         Map<String, TrackedEvent> stillActive = new HashMap<String, TrackedEvent>();
         List<AttackAlerts.Alert> attacks = new ArrayList<AttackAlerts.Alert>();
+        List<ArrivalAlerts.Arrival> arrivals = new ArrayList<ArrivalAlerts.Arrival>();
 
         for (int i = 0; i < villages.length(); i++) {
             JSONObject village = villages.getJSONObject(i);
@@ -391,6 +394,7 @@ public class NotifierWorker extends Worker {
             currentTribeId = village.optInt("tribeId", -1);
             if (withMovements) {
                 attacks.addAll(AttackAlerts.parse(village, System.currentTimeMillis()));
+                arrivals.addAll(ArrivalAlerts.parse(village, System.currentTimeMillis()));
             }
 
             JSONArray buildEvents = village.optJSONArray("buildEvents");
@@ -437,40 +441,100 @@ public class NotifierWorker extends Worker {
         saveTrackedState(stillActive);
         if (withMovements) {
             announceAttacks(attacks);
+            reportArrivals(arrivals);
         }
 
         Log.i(TAG, "poll ok: villages=" + villages.length() + " active=" + stillActive.size());
     }
 
-    /** Notifies once per incoming attack, the first time it is seen. */
+    /**
+     * Notifies once per incoming attack the first time it is seen, then once more when it is about
+     * a minute away (waking the chain just before that moment so the reminder isn't late).
+     */
     private void announceAttacks(List<AttackAlerts.Alert> attacks) {
         long now = System.currentTimeMillis();
-        Map<String, Long> announced = loadAnnouncedAttacks();
+        Map<String, Long> announced = loadLongMap(KEY_ANNOUNCED_ATTACKS);
+        Map<String, Long> reminded = loadLongMap(KEY_REMINDED_ATTACKS);
         int fresh = 0;
+        int reminders = 0;
         for (AttackAlerts.Alert alert : attacks) {
-            if (announced.containsKey(alert.key)) {
+            if (!announced.containsKey(alert.key)) {
+                postNotification(ATTACK_CHANNEL_ID, AttackAlerts.title(alert), AttackAlerts.describe(alert, now),
+                        alert.key.hashCode(), NotificationCompat.PRIORITY_MAX);
+                announced.put(alert.key, alert.arrivalMs);
+                fresh++;
+            }
+            if (reminded.containsKey(alert.key)) {
                 continue;
             }
-            postNotification(ATTACK_CHANNEL_ID, AttackAlerts.title(alert), AttackAlerts.describe(alert, now),
-                    alert.key.hashCode(), NotificationCompat.PRIORITY_MAX);
-            announced.put(alert.key, alert.arrivalMs);
-            fresh++;
+            if (AttackAlerts.reminderDue(alert, now)) {
+                postNotification(ATTACK_CHANNEL_ID, AttackAlerts.reminderTitle(alert),
+                        AttackAlerts.reminderText(alert, now), alert.key.hashCode() + 1, NotificationCompat.PRIORITY_MAX);
+                reminded.put(alert.key, alert.arrivalMs);
+                reminders++;
+            } else {
+                noteWake("attack reminder " + alert.key, alert.arrivalMs - AttackAlerts.REMINDER_WAKE_BEFORE_MS);
+            }
         }
-        // forget attacks that arrived over an hour ago, so the stored list stays tiny
-        Iterator<Map.Entry<String, Long>> it = announced.entrySet().iterator();
+        pruneOld(announced, now);
+        pruneOld(reminded, now);
+        saveLongMap(KEY_ANNOUNCED_ATTACKS, announced);
+        saveLongMap(KEY_REMINDED_ATTACKS, reminded);
+        Log.i(TAG, "incoming attacks: " + attacks.size() + " (" + fresh + " new, " + reminders + " reminders)");
+    }
+
+    /**
+     * Reports reinforcements and returning troops once they have arrived: remembers each one seen
+     * in flight, and when one is no longer listed and its arrival time has passed, notifies.
+     * One that vanishes well before arrival was recalled, so it stays silent.
+     */
+    private void reportArrivals(List<ArrivalAlerts.Arrival> current) {
+        long now = System.currentTimeMillis();
+        Map<String, ArrivalAlerts.Arrival> tracked = loadTrackedArrivals();
+        Set<String> currentKeys = new HashSet<String>();
+        for (ArrivalAlerts.Arrival a : current) {
+            currentKeys.add(a.key);
+            noteFinish("arrival " + a.key, a.arrivalMs);
+        }
+        int notified = 0;
+        for (Map.Entry<String, ArrivalAlerts.Arrival> entry : tracked.entrySet()) {
+            if (currentKeys.contains(entry.getKey())) {
+                continue;
+            }
+            ArrivalAlerts.Arrival gone = entry.getValue();
+            if (now < gone.arrivalMs - EARLY_TOLERANCE_MS) {
+                Log.i(TAG, "movement " + entry.getKey() + " vanished before it arrived (recalled?), not notifying");
+                continue;
+            }
+            postNotification(CHANNEL_ID, "Travian: Legends", gone.text, gone.key.hashCode(), NotificationCompat.PRIORITY_HIGH);
+            notified++;
+        }
+        saveTrackedArrivals(current);
+        Log.i(TAG, "friendly arrivals in flight: " + current.size() + " (" + notified + " arrived)");
+    }
+
+    /** Wake the chain at this time (if it's still ahead), without treating it as a finish time. */
+    private void noteWake(String label, long wakeMs) {
+        if (wakeMs > System.currentTimeMillis()) {
+            Log.i(TAG, label + " wake in " + ((wakeMs - System.currentTimeMillis()) / 1000) + "s");
+            nextWakeMs = Math.min(nextWakeMs, wakeMs);
+        }
+    }
+
+    /** Forget entries whose time was over an hour ago, so the stored lists stay tiny. */
+    private static void pruneOld(Map<String, Long> map, long now) {
+        Iterator<Map.Entry<String, Long>> it = map.entrySet().iterator();
         while (it.hasNext()) {
             if (it.next().getValue() < now - TimeUnit.HOURS.toMillis(1)) {
                 it.remove();
             }
         }
-        saveAnnouncedAttacks(announced);
-        Log.i(TAG, "incoming attacks: " + attacks.size() + " (" + fresh + " new)");
     }
 
-    private Map<String, Long> loadAnnouncedAttacks() {
+    private Map<String, Long> loadLongMap(String prefKey) {
         Map<String, Long> result = new HashMap<String, Long>();
         try {
-            String json = statePrefs().getString(KEY_ANNOUNCED_ATTACKS, null);
+            String json = statePrefs().getString(prefKey, null);
             if (json != null) {
                 JSONObject root = new JSONObject(json);
                 Iterator<String> keys = root.keys();
@@ -480,20 +544,54 @@ public class NotifierWorker extends Worker {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "failed to load announced attacks, starting fresh: " + e);
+            Log.w(TAG, "failed to load " + prefKey + ", starting fresh: " + e);
         }
         return result;
     }
 
-    private void saveAnnouncedAttacks(Map<String, Long> announced) {
+    private void saveLongMap(String prefKey, Map<String, Long> map) {
         try {
             JSONObject root = new JSONObject();
-            for (Map.Entry<String, Long> entry : announced.entrySet()) {
+            for (Map.Entry<String, Long> entry : map.entrySet()) {
                 root.put(entry.getKey(), entry.getValue().longValue());
             }
-            statePrefs().edit().putString(KEY_ANNOUNCED_ATTACKS, root.toString()).apply();
+            statePrefs().edit().putString(prefKey, root.toString()).apply();
         } catch (Exception e) {
-            Log.w(TAG, "failed to save announced attacks: " + e);
+            Log.w(TAG, "failed to save " + prefKey + ": " + e);
+        }
+    }
+
+    private Map<String, ArrivalAlerts.Arrival> loadTrackedArrivals() {
+        Map<String, ArrivalAlerts.Arrival> result = new HashMap<String, ArrivalAlerts.Arrival>();
+        try {
+            String json = statePrefs().getString(KEY_TRACKED_ARRIVALS, null);
+            if (json != null) {
+                JSONObject root = new JSONObject(json);
+                Iterator<String> keys = root.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    JSONObject o = root.getJSONObject(key);
+                    result.put(key, new ArrivalAlerts.Arrival(key, o.getLong("arrivalMs"), o.getString("text")));
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "failed to load tracked arrivals, starting fresh: " + e);
+        }
+        return result;
+    }
+
+    private void saveTrackedArrivals(List<ArrivalAlerts.Arrival> current) {
+        try {
+            JSONObject root = new JSONObject();
+            for (ArrivalAlerts.Arrival a : current) {
+                JSONObject o = new JSONObject();
+                o.put("arrivalMs", a.arrivalMs);
+                o.put("text", a.text);
+                root.put(a.key, o);
+            }
+            statePrefs().edit().putString(KEY_TRACKED_ARRIVALS, root.toString()).apply();
+        } catch (Exception e) {
+            Log.w(TAG, "failed to save tracked arrivals: " + e);
         }
     }
 

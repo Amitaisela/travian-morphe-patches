@@ -19,11 +19,29 @@ import java.util.Locale;
  */
 final class AttackAlerts {
 
-    /** GraphQL selection appended to each village in the poll query. */
-    static final String MOVEMENTS_SELECTION =
-            "troops { moving(first: 20, filter: {types: [INCOMING_ATTACK]}, sortOrder: earliestArrivingFirst) "
-            + "{ edges { node { troopEvent { type arrivalTime "
-            + "cellFrom { id x y village { name player { name } } } } } } } }";
+    /**
+     * One movement list, aliased so each kind is told apart by which list it came from rather than
+     * by guessing at the game's event-type names. Same fields the game's own Rally Point requests.
+     */
+    private static String moving(String alias, String type, boolean withUnits) {
+        return alias + ": moving(first: 20, filter: {types: [" + type + "]}, sortOrder: earliestArrivingFirst) "
+                + "{ edges { node { "
+                + "troopEvent { type arrivalTime cellFrom { id x y village { name player { name } } } } "
+                + (withUnits ? "units { t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 } " : "")
+                + "} } } ";
+    }
+
+    /** GraphQL selection appended to each village in the poll query: attacks, reinforcements, returning troops. */
+    static final String MOVEMENTS_SELECTION = "troops { "
+            + moving("attacks", "INCOMING_ATTACK", false)
+            + moving("reinforcements", "INCOMING_REINFORCEMENT", true)
+            + moving("returning", "INCOMING_RETURNING", true)
+            + "}";
+
+    /** Send the "about a minute left" reminder once an attack is this close. */
+    static final long REMINDER_LEAD_MS = 90_000L;
+    /** Wake this long before arrival so the reminder lands about a minute out. */
+    static final long REMINDER_WAKE_BEFORE_MS = 75_000L;
 
     /** An alert for an attack that arrived this long ago is stale and ignored. */
     private static final long STALE_MS = 60_000L;
@@ -62,7 +80,7 @@ final class AttackAlerts {
     static List<Alert> parse(JSONObject village, long nowMs) {
         List<Alert> alerts = new ArrayList<Alert>();
         JSONObject moving = village.optJSONObject("troops") != null
-                ? village.optJSONObject("troops").optJSONObject("moving") : null;
+                ? village.optJSONObject("troops").optJSONObject("attacks") : null;
         JSONArray edges = moving != null ? moving.optJSONArray("edges") : null;
         if (edges == null) {
             return alerts;
@@ -120,6 +138,24 @@ final class AttackAlerts {
                 .append(new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date(a.arrivalMs)))
                 .append(" (in ").append(minutesUntil(a.arrivalMs, nowMs)).append(" min)");
         return sb.toString();
+    }
+
+    /** True once the attack is close enough (and not long gone) for the "about a minute left" reminder. */
+    static boolean reminderDue(Alert a, long nowMs) {
+        long left = a.arrivalMs - nowMs;
+        return left <= REMINDER_LEAD_MS && left > -STALE_MS / 2;
+    }
+
+    static String reminderTitle(Alert a) {
+        return "Incoming " + a.kind + " almost here!";
+    }
+
+    static String reminderText(Alert a, long nowMs) {
+        long secs = Math.max(0L, (a.arrivalMs - nowMs) / 1000L);
+        String who = a.originPlayer.length() > 0 ? a.originPlayer : "an unknown player";
+        return "Lands in about " + secs + " s on " + a.targetVillage + " (" + a.targetX + "|" + a.targetY
+                + ") — from " + who + (a.originVillage.length() > 0 ? ", " + a.originVillage : "")
+                + " (" + a.originX + "|" + a.originY + ")";
     }
 
     private static long minutesUntil(long arrivalMs, long nowMs) {
