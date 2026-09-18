@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.2.0...v1.3.0) (2026-09-18)
+
+### ✨ New Features
+
+* notify from the game's own session with no login, no persistent notification ([fbf0561](https://github.com/Amitaisela/travian-morphe-patches/commit/fbf056119b6de41d36a6c2db9f3c106767915a6a))
+
 ## [1.2.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.1.1...v1.2.0) (2026-09-17)
 
 ### ⚠ BREAKING CHANGES
