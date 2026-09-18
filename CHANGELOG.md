@@ -1,3 +1,9 @@
+## [1.4.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.4.0...v1.4.1) (2026-09-18)
+
+### 🐛 Bug Fixes
+
+* keep checking while the game isn't logged in yet ([0c3f19c](https://github.com/Amitaisela/travian-morphe-patches/commit/0c3f19cc908ece168835aa5d88f8202a11055263))
+
 ## [1.4.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.3.0...v1.4.0) (2026-09-18)
 
 ### ✨ New Features
