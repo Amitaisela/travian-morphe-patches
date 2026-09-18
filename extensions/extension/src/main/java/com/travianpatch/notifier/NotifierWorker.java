@@ -92,7 +92,11 @@ public class NotifierWorker extends Worker {
             Log.i(TAG, "check started");
             String sessionCookie = TravianSession.readLobbySessionCookie(getApplicationContext());
             if (sessionCookie == null) {
-                Log.i(TAG, "no game session found (not logged into the game yet), skipping");
+                // Not logged in yet (e.g. a fresh install). Keep the chain alive with a cheap local-only
+                // recheck so the first check after logging in happens within minutes, not at the next
+                // ~15 minute safety job.
+                Log.i(TAG, "no game session found (not logged into the game yet), will look again");
+                scheduleNextCheck();
                 return Result.success();
             }
 
@@ -116,6 +120,7 @@ public class NotifierWorker extends Worker {
 
             gameworldHost = resumeSession(http, jar, sessionCookie);
             if (gameworldHost == null) {
+                scheduleNextCheck(); // the game's session wasn't usable right now; try again later
                 return Result.success();
             }
             cacheWorldToken(jar, gameworldHost);
