@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-18T21:35:48",
-  "description": "## [1.5.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.5.0...v1.5.1) (2026-09-18)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** send one notification per troop training, not two ([0193b0d](https://github.com/Amitaisela/travian-morphe-patches/commit/0193b0d08d373230127a09db63af610612fe7f45))",
-  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.5.1/patches-1.5.1.mpp",
+  "created_at": "2026-09-18T21:50:29",
+  "description": "## [1.5.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.5.1...v1.5.2) (2026-09-18)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** run checks one at a time and log trained unit ids ([c8e16b2](https://github.com/Amitaisela/travian-morphe-patches/commit/c8e16b25db9df0ac17f4db78fc05be0c96880af0))",
+  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.5.2/patches-1.5.2.mpp",
   "signature_download_url": "",
-  "version": "1.5.1"
+  "version": "1.5.2"
 }
