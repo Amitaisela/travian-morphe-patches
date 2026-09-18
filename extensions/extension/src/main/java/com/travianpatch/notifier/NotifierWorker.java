@@ -88,14 +88,24 @@ public class NotifierWorker extends Worker {
     // earliest upcoming finish seen during this run (epoch ms), and whether a just-passed one is still listed
     private long nextWakeMs = Long.MAX_VALUE;
     private boolean lagging = false;
+    private int currentTribeId = -1; // tribe of the village being read, for logging trained unit ids
 
     public NotifierWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
     }
 
+    /** Serializes checks: the chained check and the periodic job can fire at the same moment. */
+    private static final Object CHECK_LOCK = new Object();
+
     @NonNull
     @Override
     public Result doWork() {
+        synchronized (CHECK_LOCK) {
+            return runCheck();
+        }
+    }
+
+    private Result runCheck() {
         try {
             Log.i(TAG, "check started");
             String sessionCookie = TravianSession.readLobbySessionCookie(getApplicationContext());
@@ -320,11 +330,11 @@ public class NotifierWorker extends Worker {
     // ------------------------------------------------------------------
 
     private static String pollQuery(boolean withMovements) {
-        return "{ \"query\": \"query { p: ownPlayer { villages { id name x y "
+        return "{ \"query\": \"query { p: ownPlayer { villages { id name x y tribeId "
                 + "buildEvents { id buildingTypeId aspiredLevel timestamp status isActive } "
-                + "trainingTroops { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } "
-                + "stable { trainingUnits { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
-                + "barracks { trainingUnits { eventId unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
+                + "trainingTroops { eventId unit { id } unitsLeft nextUnitReadyAt lastUnitReadyAt } "
+                + "stable { trainingUnits { eventId unit { id } unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
+                + "barracks { trainingUnits { eventId unit { id } unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
                 + (withMovements ? AttackAlerts.MOVEMENTS_SELECTION + " " : "")
                 + "} } }\" }";
     }
@@ -378,6 +388,7 @@ public class NotifierWorker extends Worker {
             String villageName = village.optString("name", "your village");
             int vx = village.optInt("x", 0);
             int vy = village.optInt("y", 0);
+            currentTribeId = village.optInt("tribeId", -1);
             if (withMovements) {
                 attacks.addAll(AttackAlerts.parse(village, System.currentTimeMillis()));
             }
@@ -506,7 +517,9 @@ public class NotifierWorker extends Worker {
             int initialUnits = existing != null ? existing.initialUnitsLeft : ev.optInt("unitsLeft", 0);
             long finishMs = toMillis(ev.optLong("lastUnitReadyAt", 0));
             stillActive.put(id, new TrackedEvent(kind, villageName, vx, vy, -1, -1, initialUnits, finishMs));
-            Log.i(TAG, kind + " event " + id + " raw lastUnitReadyAt=" + ev.optLong("lastUnitReadyAt", 0));
+            JSONObject unit = ev.optJSONObject("unit");
+            Log.i(TAG, kind + " event " + id + " unit id=" + (unit != null ? unit.optInt("id", -1) : -1)
+                    + " tribe=" + currentTribeId + " raw lastUnitReadyAt=" + ev.optLong("lastUnitReadyAt", 0));
             noteFinish(kind + " " + id, finishMs);
         }
     }
