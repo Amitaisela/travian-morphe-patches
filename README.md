@@ -1,16 +1,33 @@
-# 👋🧩 Morphe Patches template
+# Travian: Legends notifier for Morphe
 
-Template repository for Morphe Patches.
+Patches for the **Travian: Legends** Android app that notify you about what's happening in your game, even when the app is closed:
 
-## ❓ About
+- **Build and troop training finished**, with the building or unit, level and village.
+- **Incoming attacks and raids**, with who is attacking, where from and when they land, plus a second warning about a minute before they arrive.
+- **Reinforcements and your own troops arriving**, with where they came from and how many.
 
-Patches for apps I like.
+It uses the session you are already logged in with in the game, so **no password is ever entered or stored by the patch**, and it works the same whichever way you log in. There is no permanent notification icon: checks run quietly in the background (about every 5 minutes, and again right when something is due), and you only see a notification when something happened. On first launch it asks once for notification permission and for a battery-optimization exemption so Android doesn't stop the background checks.
 
-<!-- TODO: Update this about section with a brief introduction/summary about this repo and what it offers. -->
+## How to install
 
-### How to use these patches
+1. Install **Morphe Manager** and add this patch source: <https://morphe.software/add-source?github=Amitaisela/travian-morphe-patches>
+2. Get the Travian: Legends APK bundle (see below).
+3. In Morphe, tap **Travian: Legends**, choose **"I already have an APK"**, pick the bundle file, then patch and install.
+4. Open the game, log in as usual, and allow the notification and battery prompts.
 
-Click here to add these patches to Morphe: https://morphe.software/add-source?github=Amitaisela/travian-morphe-patches
+> [!NOTE]
+> Android will not install the patched app over the Play Store version (different signing key), so uninstall the Play Store version first. Your game account lives on Travian's servers, so nothing is lost. A patched app doesn't update from the Play Store: when Travian releases a new version, get the new bundle and patch again. Morphe shows an **Update** badge when a new patch release is out.
+
+### Getting the Travian APK
+
+The game's APK isn't included in this repository (it is Travian's app, not something to redistribute), and Travian isn't on APKMirror, so Morphe's "help me find an APK" ends in a web search. Two ways to get the file:
+
+- **Download a bundle (easiest).** Travian ships as a *split* app, so download the **XAPK** (bundle) of the latest version, not a single APK, from [APKPure](https://apkpure.com/travian-legends/com.traviangames.travianlegendsmobile) or [APKCombo](https://apkcombo.com/travian-legends/com.traviangames.travianlegendsmobile/). These are third-party sites, so use your own judgement about trusting them.
+- **Export it from your own phone.** Install Travian from the Play Store, then export the installed app as a bundle (`.apkm`, `.apks` or `.xapk`) with an app-backup/export tool, or over USB with `adb`: run `adb shell pm path com.traviangames.travianlegendsmobile`, `adb pull` every path it lists (the base APK and all splits), and zip them together as a `.apkm`. This gives you exactly the version on your phone.
+
+Pick the resulting file in Morphe with **"I already have an APK"**.
+
+**Supported versions:** 4.0.0, 4.0.1 and 4.0.2 are tested against; other versions are allowed as experimental, but the game refuses to run versions older than the current one. Tested on one Xiaomi phone. Patched code is plain Java, so it should run wherever the game does (Android 8.1+), but some brands stop background apps more aggressively than others.
 
 ## 🩹 Patches list
 
