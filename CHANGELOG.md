@@ -1,3 +1,9 @@
+## [1.5.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.5.0...v1.5.1) (2026-09-18)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** send one notification per troop training, not two ([0193b0d](https://github.com/Amitaisela/travian-morphe-patches/commit/0193b0d08d373230127a09db63af610612fe7f45))
+
 ## [1.5.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.4.1...v1.5.0) (2026-09-18)
 
 ### ✨ New Features
