@@ -1,3 +1,9 @@
+## [1.6.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.5.2...v1.6.0) (2026-09-18)
+
+### ✨ New Features
+
+* **Travian: Legends:** remind a minute before an attack lands, report friendly arrivals ([3e09958](https://github.com/Amitaisela/travian-morphe-patches/commit/3e0995824538d1ed13dd3a29dc68af72ee1bfde5))
+
 ## [1.5.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.5.1...v1.5.2) (2026-09-18)
 
 ### 🐛 Bug Fixes
