@@ -29,6 +29,23 @@ Pick the resulting file in Morphe with **"I already have an APK"**.
 
 **Supported versions:** 4.0.0, 4.0.1 and 4.0.2 are tested against; other versions are allowed as experimental, but the game refuses to run versions older than the current one. Tested on one Xiaomi phone. Patched code is plain Java, so it should run wherever the game does (Android 8.1+), but some brands stop background apps more aggressively than others.
 
+## How it works
+
+- **No separate login.** The game saves its own login on your phone. The patch runs inside the game's process and reads that saved session, so it works with whatever login method you use, and it never handles or stores your password.
+- **Light background checks.** It asks Travian's servers the same questions the app itself asks. A normal check is a single request; a full sign-in only repeats about every 2 hours. It schedules a check for just after each build or training is due, so completions are reported within seconds, plus a regular check every 5 minutes to notice things started elsewhere.
+- **Quiet.** No permanent notification icon. You only see a notification when something happened.
+
+## Known limitations
+
+- Incoming attacks and arrivals are noticed on the regular 5-minute check, so the first alert can come up to about 5 minutes after the enemy sends the army (the "about a minute left" reminder is scheduled precisely).
+- Android decides when background work runs. Some phone brands (Xiaomi, Huawei, Samsung and others) stop background apps more aggressively than stock Android. It has been tested on **one Xiaomi phone**; results elsewhere may differ.
+- Troop training notifications say "N units" rather than naming the unit.
+- Accounts that log in with Google are expected to work (the game saves the same kind of session) but this has **not been tested yet**.
+- The Travian APK has to be obtained separately (see above), and a patched app must be re-patched when the game updates.
+
+> [!IMPORTANT]
+> This project is not affiliated with or endorsed by Travian Games. The patch only *reads* your own game data using the same requests the app makes, and it never performs actions in the game. Whether third-party tools are acceptable is up to the game's rules, so check them yourself.
+
 ## 🩹 Patches list
 
 <!-- PATCHES_START EXPANDED -->
@@ -62,4 +79,4 @@ See the [Morphe documentation](https://github.com/MorpheApp/morphe-documentation
 
 ## 📜 License
 
-UserXYZ Patches are licensed under the [GNU General Public License v3.0](LICENSE)
+Travian Notifier Patches are licensed under the [GNU General Public License v3.0](LICENSE)
