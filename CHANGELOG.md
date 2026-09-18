@@ -1,3 +1,9 @@
+## [1.5.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.4.1...v1.5.0) (2026-09-18)
+
+### ✨ New Features
+
+* **Travian: Legends:** alert on incoming attacks and raids ([141372d](https://github.com/Amitaisela/travian-morphe-patches/commit/141372d529068bcd2968cb69814eaebc77d88835))
+
 ## [1.4.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.4.0...v1.4.1) (2026-09-18)
 
 ### 🐛 Bug Fixes
