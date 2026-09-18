@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.3.0...v1.4.0) (2026-09-18)
+
+### ✨ New Features
+
+* check every 5 minutes using a cached world token ([b54dbd9](https://github.com/Amitaisela/travian-morphe-patches/commit/b54dbd984e9366d4cac9c472a5af5e3d018b3510))
+
 ## [1.3.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.2.0...v1.3.0) (2026-09-18)
 
 ### ✨ New Features
