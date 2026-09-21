@@ -1,3 +1,9 @@
+## [1.12.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.12.0...v1.12.1) (2026-09-21)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** don't report arrivals when the game leaves out the movement lists ([4444a3c](https://github.com/Amitaisela/travian-morphe-patches/commit/4444a3c5c448d83a427f9e5ae01d8ba702a34cfd))
+
 ## [1.12.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.11.1...v1.12.0) (2026-09-21)
 
 ### ✨ New Features
