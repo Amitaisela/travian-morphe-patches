@@ -16,6 +16,8 @@ enum NotificationKind {
             "A second warning about a minute before an attack lands.", true, true),
     ATTACK_CALLED_OFF("attack_called_off", "Attack called off",
             "An incoming attack was cancelled before it landed.", true, true),
+    RESOURCES_FULL("resources_full", "Storage almost full",
+            "A warehouse or granary will be full within about 30 minutes.", false, true),
     REINFORCEMENT_ARRIVED("reinforcement_arrived", "Reinforcements arrived",
             "Troops sent to help you have arrived.", false, true),
     TROOPS_RETURNED("troops_returned", "Your troops are back",

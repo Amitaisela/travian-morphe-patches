@@ -91,6 +91,8 @@ public class NotifierWorker extends Worker {
     private static final String KEY_REMINDED_ATTACKS = "reminded_attacks";
     private static final String KEY_TRACKED_ARRIVALS = "tracked_arrivals";
     private static final String KEY_TRACKED_ATTACKS = "tracked_attacks";
+    private static final String KEY_STORAGE_ALERTED = "storage_alerted";
+    private static final String KEY_HERO_LOGGED = "hero_logged";
     /** If the game rejects the movements part of the poll query, skip it until this time (epoch ms). */
     private static final String KEY_MOVEMENTS_OFF_UNTIL = "movements_off_until";
     private static final String ATTACK_CHANNEL_ID = NotifierBootstrap.ATTACK_CHANNEL_ID;
@@ -498,7 +500,94 @@ public class NotifierWorker extends Worker {
             }
         }
 
+        checkExtras(http, gameworldHost);
         Log.i(TAG, "poll ok: villages=" + villages.length() + " active=" + stillActive.size());
+    }
+
+    /**
+     * Storage warnings and the hero data log. Each is its own request, so a problem with either can
+     * never break the main check above.
+     */
+    private void checkExtras(OkHttpClient http, String gameworldHost) {
+        try {
+            checkStorage(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "storage check failed: " + e);
+        }
+        try {
+            logHeroChanges(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "hero data check failed: " + e);
+        }
+    }
+
+    private JSONObject runQuery(OkHttpClient http, String gameworldHost, String selection) throws Exception {
+        String body = "{ \"query\": \"query { p: ownPlayer { " + selection + " } }\" }";
+        Request req = new Request.Builder()
+                .url(gameworldHost + "/api/v1/graphql")
+                .post(TravianApi.jsonBody(body))
+                .build();
+        return TravianApi.executeJson(http, req);
+    }
+
+    /**
+     * Warns once per village and resource when a warehouse or granary is full or due to be within about
+     * 30 minutes, and again only after it has clearly moved away from full.
+     */
+    private void checkStorage(OkHttpClient http, String gameworldHost) throws Exception {
+        JSONObject resp = runQuery(http, gameworldHost, "villages { id name x y " + ResourceAlerts.SELECTION + " }");
+        JSONObject data = resp.optJSONObject("data");
+        if (data == null) {
+            Log.w(TAG, "storage query returned no data (" + errorSummary(resp) + ")");
+            return;
+        }
+        JSONArray villages = data.getJSONObject("p").getJSONArray("villages");
+        Set<String> alerted = new HashSet<String>(statePrefs().getStringSet(KEY_STORAGE_ALERTED, new HashSet<String>()));
+        int warned = 0;
+        for (int i = 0; i < villages.length(); i++) {
+            JSONObject village = villages.getJSONObject(i);
+            List<ResourceAlerts.Reading> fresh = new ArrayList<ResourceAlerts.Reading>();
+            for (ResourceAlerts.Reading r : ResourceAlerts.read(village)) {
+                if (ResourceAlerts.atRisk(r)) {
+                    if (alerted.add(r.key)) {
+                        fresh.add(r);
+                    }
+                } else if (ResourceAlerts.clear(r)) {
+                    alerted.remove(r.key);
+                }
+            }
+            if (!fresh.isEmpty()) {
+                String name = village.optString("name", "your village");
+                postNotification(NotificationKind.RESOURCES_FULL, ResourceAlerts.TITLE,
+                        ResourceAlerts.text(name, village.optInt("x", 0), village.optInt("y", 0), fresh),
+                        ("storage:" + village.opt("id")).hashCode(), NotificationCompat.PRIORITY_HIGH);
+                warned++;
+            }
+        }
+        statePrefs().edit().putStringSet(KEY_STORAGE_ALERTED, alerted).apply();
+        Log.i(TAG, "storage checked: villages=" + villages.length() + " warned=" + warned + " tracked=" + alerted.size());
+    }
+
+    /**
+     * Writes the hero's health, status and adventure count to the log whenever they change. For now this
+     * only records what the game reports (to learn its exact status words); it sends no notification.
+     */
+    private void logHeroChanges(OkHttpClient http, String gameworldHost) throws Exception {
+        JSONObject resp = runQuery(http, gameworldHost, "hero { level health isAlive isRegenerating "
+                + "regenerationEndAt adventuresAmount homeVillage { id } "
+                + "status { status arrivalAt arrivalIn inVillage { id } onWayTo { id x y } adventure { id difficulty } } }");
+        JSONObject data = resp.optJSONObject("data");
+        if (data == null) {
+            Log.w(TAG, "hero query returned no data (" + errorSummary(resp) + ")");
+            return;
+        }
+        JSONObject hero = data.getJSONObject("p").optJSONObject("hero");
+        String summary = hero == null ? "no hero" : hero.toString();
+        SharedPreferences prefs = statePrefs();
+        if (!summary.equals(prefs.getString(KEY_HERO_LOGGED, null))) {
+            Log.i(TAG, "hero data: " + summary);
+            prefs.edit().putString(KEY_HERO_LOGGED, summary).apply();
+        }
     }
 
     /**
