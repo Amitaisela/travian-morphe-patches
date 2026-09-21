@@ -1,3 +1,9 @@
+## [1.10.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.9.0...v1.10.0) (2026-09-21)
+
+### ✨ New Features
+
+* **Travian: Legends:** warn when a warehouse or granary is about to fill up ([608a325](https://github.com/Amitaisela/travian-morphe-patches/commit/608a3250b3672eee99262deffd84c57abe404bd9))
+
 ## [1.9.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.8.0...v1.9.0) (2026-09-21)
 
 ### ✨ New Features

@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-21T12:25:22",
-  "description": "## [1.9.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.8.0...v1.9.0) (2026-09-21)\n\n### ✨ New Features\n\n* **Travian: Legends:** give the Travian Tools screens a cleaner look with cards, light and dark colours ([3ef665d](https://github.com/Amitaisela/travian-morphe-patches/commit/3ef665d59a054e5db6955ce0434f59d45643e184))",
-  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.9.0/patches-1.9.0.mpp",
+  "created_at": "2026-09-21T12:46:03",
+  "description": "## [1.10.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.9.0...v1.10.0) (2026-09-21)\n\n### ✨ New Features\n\n* **Travian: Legends:** warn when a warehouse or granary is about to fill up ([608a325](https://github.com/Amitaisela/travian-morphe-patches/commit/608a3250b3672eee99262deffd84c57abe404bd9))",
+  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.10.0/patches-1.10.0.mpp",
   "signature_download_url": "",
-  "version": "1.9.0"
+  "version": "1.10.0"
 }
