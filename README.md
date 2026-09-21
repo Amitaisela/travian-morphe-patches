@@ -5,6 +5,7 @@ Patches for the **Travian: Legends** Android app that notify you about what's ha
 - **Build and troop training finished**, with the building or unit, level and village.
 - **Incoming attacks and raids**, with who is attacking, where from and when they land, plus a second warning about a minute before they arrive, and a message if the attacker calls the attack off.
 - **Warehouse or granary almost full**, when a village's storage will be full within about 30 minutes at its current production.
+- **Your hero**: a new adventure is available, the hero is back home, or it died or is low on health.
 - **Reinforcements and your own troops arriving**, with where they came from and how many.
 - **Tap a notification to open the game.**
 - **A "Travian Tools" app** (its own icon, the game's icon with a bell) where you switch each type of notification on or off, see how many of each you got in the last 24 hours, check how the background checks are doing, and look through your recent notifications. More tools are planned.

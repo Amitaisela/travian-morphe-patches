@@ -93,6 +93,7 @@ public class NotifierWorker extends Worker {
     private static final String KEY_TRACKED_ATTACKS = "tracked_attacks";
     private static final String KEY_STORAGE_ALERTED = "storage_alerted";
     private static final String KEY_HERO_LOGGED = "hero_logged";
+    private static final String KEY_HERO_STATE = "hero_state";
     /** If the game rejects the movements part of the poll query, skip it until this time (epoch ms). */
     private static final String KEY_MOVEMENTS_OFF_UNTIL = "movements_off_until";
     private static final String ATTACK_CHANNEL_ID = NotifierBootstrap.ATTACK_CHANNEL_ID;
@@ -515,7 +516,7 @@ public class NotifierWorker extends Worker {
     }
 
     /**
-     * Storage warnings and the hero data log. Each is its own request, so a problem with either can
+     * Storage warnings and hero changes. Each is its own request, so a problem with either can
      * never break the main check above.
      */
     private void checkExtras(OkHttpClient http, String gameworldHost) {
@@ -525,7 +526,7 @@ public class NotifierWorker extends Worker {
             Log.w(TAG, "storage check failed: " + e);
         }
         try {
-            logHeroChanges(http, gameworldHost);
+            checkHero(http, gameworldHost);
         } catch (Exception e) {
             Log.w(TAG, "hero data check failed: " + e);
         }
@@ -579,25 +580,39 @@ public class NotifierWorker extends Worker {
     }
 
     /**
-     * Writes the hero's health, status and adventure count to the log whenever they change. For now this
-     * only records what the game reports (to learn its exact status words); it sends no notification.
+     * Tells what changed about the hero since the last check: a new adventure, back home, health low, or
+     * died. The first check after installing only records where things stand. The raw hero record is also
+     * written to the log whenever it changes, so the game's real values can be checked against.
      */
-    private void logHeroChanges(OkHttpClient http, String gameworldHost) throws Exception {
-        JSONObject resp = runQuery(http, gameworldHost, "hero { level health isAlive isRegenerating "
-                + "regenerationEndAt adventuresAmount homeVillage { id } "
-                + "status { status arrivalAt arrivalIn inVillage { id } onWayTo { id x y } adventure { id difficulty } } }");
+    private void checkHero(OkHttpClient http, String gameworldHost) throws Exception {
+        JSONObject resp = runQuery(http, gameworldHost, HeroAlerts.SELECTION);
         JSONObject data = resp.optJSONObject("data");
         if (data == null) {
             Log.w(TAG, "hero query returned no data (" + errorSummary(resp) + ")");
             return;
         }
         JSONObject hero = data.getJSONObject("p").optJSONObject("hero");
-        String summary = hero == null ? "no hero" : hero.toString();
         SharedPreferences prefs = statePrefs();
-        if (!summary.equals(prefs.getString(KEY_HERO_LOGGED, null))) {
-            Log.i(TAG, "hero data: " + summary);
-            prefs.edit().putString(KEY_HERO_LOGGED, summary).apply();
+        if (hero == null) {
+            Log.i(TAG, "no hero in the response");
+            return;
         }
+        String raw = hero.toString();
+        if (!raw.equals(prefs.getString(KEY_HERO_LOGGED, null))) {
+            Log.i(TAG, "hero data: " + raw);
+            prefs.edit().putString(KEY_HERO_LOGGED, raw).apply();
+        }
+        HeroAlerts.Snapshot before = HeroAlerts.Snapshot.fromJson(prefs.getString(KEY_HERO_STATE, null));
+        HeroAlerts.Result result = HeroAlerts.evaluate(before, HeroAlerts.read(hero));
+        for (HeroAlerts.Event event : result.events) {
+            postNotification(HeroAlerts.kindOf(event), HeroAlerts.title(event, result.next),
+                    HeroAlerts.text(event, result.next), ("hero:" + event.name()).hashCode(),
+                    NotificationCompat.PRIORITY_HIGH);
+        }
+        prefs.edit().putString(KEY_HERO_STATE, result.next.toJson()).apply();
+        Log.i(TAG, "hero checked: " + result.events.size() + " change(s), alive=" + result.next.alive
+                + " health=" + result.next.health + " adventures=" + result.next.adventures
+                + " atHome=" + result.next.atHome);
     }
 
     /**

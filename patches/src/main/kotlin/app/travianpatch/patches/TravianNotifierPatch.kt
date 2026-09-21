@@ -13,7 +13,8 @@ val travianNotifierPatch = bytecodePatch(
         "the building/unit name, level, and village, and warns you about incoming attacks and " +
         "raids (who, from where, and when they arrive) with a second warning about a minute " +
         "before they land, tells you when an attack was called off, warns you when a warehouse " +
-        "or granary is about to fill up, and tells you " +
+        "or granary is about to fill up, tells you when your hero has a new adventure, is back home, " +
+        "died or is low on health, and tells you " +
         "when reinforcements or your own returning troops " +
         "arrive. Tapping a notification opens the game, and a second \"Travian Tools\" icon opens a " +
         "home screen where you switch each type of notification on or off and see your recent ones. Uses the session you're already logged in " +
