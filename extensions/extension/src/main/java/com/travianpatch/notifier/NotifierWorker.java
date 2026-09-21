@@ -90,6 +90,7 @@ public class NotifierWorker extends Worker {
     private static final String KEY_ANNOUNCED_ATTACKS = "announced_attacks";
     private static final String KEY_REMINDED_ATTACKS = "reminded_attacks";
     private static final String KEY_TRACKED_ARRIVALS = "tracked_arrivals";
+    private static final String KEY_TRACKED_ATTACKS = "tracked_attacks";
     /** If the game rejects the movements part of the poll query, skip it until this time (epoch ms). */
     private static final String KEY_MOVEMENTS_OFF_UNTIL = "movements_off_until";
     private static final String ATTACK_CHANNEL_ID = NotifierBootstrap.ATTACK_CHANNEL_ID;
@@ -420,6 +421,8 @@ public class NotifierWorker extends Worker {
         Map<String, TrackedEvent> stillActive = new HashMap<String, TrackedEvent>();
         List<AttackAlerts.Alert> attacks = new ArrayList<AttackAlerts.Alert>();
         List<ArrivalAlerts.Arrival> arrivals = new ArrayList<ArrivalAlerts.Arrival>();
+        // false if any village came back without its attack list: then "no attacks" means "unknown"
+        boolean movementsComplete = withMovements;
 
         for (int i = 0; i < villages.length(); i++) {
             JSONObject village = villages.getJSONObject(i);
@@ -430,6 +433,7 @@ public class NotifierWorker extends Worker {
             if (withMovements) {
                 attacks.addAll(AttackAlerts.parse(village, System.currentTimeMillis()));
                 arrivals.addAll(ArrivalAlerts.parse(village, System.currentTimeMillis()));
+                movementsComplete = movementsComplete && AttackAlerts.hasMovementData(village);
             }
 
             JSONArray buildEvents = village.optJSONArray("buildEvents");
@@ -487,6 +491,11 @@ public class NotifierWorker extends Worker {
         if (withMovements) {
             announceAttacks(attacks);
             reportArrivals(arrivals);
+            if (movementsComplete) {
+                reportCalledOffAttacks(attacks);
+            } else {
+                Log.w(TAG, "a village came back without its attack list, not checking for called-off attacks this time");
+            }
         }
 
         Log.i(TAG, "poll ok: villages=" + villages.length() + " active=" + stillActive.size());
@@ -526,6 +535,35 @@ public class NotifierWorker extends Worker {
         saveLongMap(KEY_ANNOUNCED_ATTACKS, announced);
         saveLongMap(KEY_REMINDED_ATTACKS, reminded);
         Log.i(TAG, "incoming attacks: " + attacks.size() + " (" + fresh + " new, " + reminders + " reminders)");
+    }
+
+    /**
+     * Tells when an attack that was in flight disappears well before its landing time, i.e. the
+     * attacker called it off. One that is gone at or after its landing time simply landed, which is
+     * not reported.
+     */
+    private void reportCalledOffAttacks(List<AttackAlerts.Alert> current) {
+        long now = System.currentTimeMillis();
+        Map<String, AttackOutcomes.Tracked> tracked =
+                AttackOutcomes.fromJson(statePrefs().getString(KEY_TRACKED_ATTACKS, null));
+        Set<String> currentKeys = new HashSet<String>();
+        List<AttackOutcomes.Tracked> inFlight = new ArrayList<AttackOutcomes.Tracked>();
+        for (AttackAlerts.Alert a : current) {
+            currentKeys.add(a.key);
+            inFlight.add(AttackOutcomes.Tracked.of(a));
+        }
+        int calledOff = 0;
+        for (Map.Entry<String, AttackOutcomes.Tracked> entry : tracked.entrySet()) {
+            AttackOutcomes.Tracked gone = entry.getValue();
+            if (currentKeys.contains(entry.getKey()) || !AttackOutcomes.calledOff(gone, now)) {
+                continue;
+            }
+            postNotification(NotificationKind.ATTACK_CALLED_OFF, AttackOutcomes.title(gone),
+                    AttackOutcomes.text(gone), gone.key.hashCode() + 2, NotificationCompat.PRIORITY_HIGH);
+            calledOff++;
+        }
+        statePrefs().edit().putString(KEY_TRACKED_ATTACKS, AttackOutcomes.toJson(inFlight)).apply();
+        Log.i(TAG, "attacks in flight: " + inFlight.size() + " (" + calledOff + " called off)");
     }
 
     /**

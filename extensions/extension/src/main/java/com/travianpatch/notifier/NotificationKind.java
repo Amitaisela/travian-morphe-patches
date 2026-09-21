@@ -14,6 +14,8 @@ enum NotificationKind {
             "An attack or raid is heading for one of your villages.", true, true),
     ATTACK_REMINDER("attack_reminder", "Attack about to land",
             "A second warning about a minute before an attack lands.", true, true),
+    ATTACK_CALLED_OFF("attack_called_off", "Attack called off",
+            "An incoming attack was cancelled before it landed.", true, true),
     REINFORCEMENT_ARRIVED("reinforcement_arrived", "Reinforcements arrived",
             "Troops sent to help you have arrived.", false, true),
     TROOPS_RETURNED("troops_returned", "Your troops are back",
