@@ -1,3 +1,9 @@
+## [1.11.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.10.1...v1.11.0) (2026-09-21)
+
+### ✨ New Features
+
+* **Travian: Legends:** tell when the hero has a new adventure, is back home, died or is low on health ([29d93b3](https://github.com/Amitaisela/travian-morphe-patches/commit/29d93b35eca3f73373dba795c14490b4184f12f1))
+
 ## [1.10.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.10.0...v1.10.1) (2026-09-21)
 
 ### 🐛 Bug Fixes
