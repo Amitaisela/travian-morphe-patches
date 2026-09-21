@@ -31,6 +31,8 @@ public class HubActivity extends Activity {
     private TextView lastCheckView;
     private TextView watchingView;
     private long checkRequestedMs = 0;
+    /** True when a check couldn't be started because the game has never been opened on this install. */
+    private boolean gameNeverOpened = false;
 
     private final Runnable refresh = new Runnable() {
         @Override
@@ -108,8 +110,11 @@ public class HubActivity extends Activity {
     private void checkIfStale() {
         long now = System.currentTimeMillis();
         if (now - loadStatus().lastCheckMs > FRESH_MS && now - checkRequestedMs > FRESH_MS) {
-            NotifierWorker.requestCheckNow(this);
-            checkRequestedMs = now;
+            boolean started = NotifierWorker.requestCheckNow(this);
+            gameNeverOpened = !started;
+            if (started) {
+                checkRequestedMs = now;
+            }
         }
     }
 
@@ -119,7 +124,11 @@ public class HubActivity extends Activity {
         AlertStatus status = loadStatus();
         boolean checking = checkRequestedMs > status.lastCheckMs && now - checkRequestedMs < CHECKING_MS;
         notificationsView.setText(notificationsLine());
-        lastCheckView.setText(checking ? "Last check: checking now…" : status.lastCheckLine(now));
+        if (gameNeverOpened && status.lastCheckMs == 0) {
+            lastCheckView.setText("Open the game once to start the background checks.");
+        } else {
+            lastCheckView.setText(checking ? "Last check: checking now…" : status.lastCheckLine(now));
+        }
         watchingView.setText(status.watchingLine());
     }
 

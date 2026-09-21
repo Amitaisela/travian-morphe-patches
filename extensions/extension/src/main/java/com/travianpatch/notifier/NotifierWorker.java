@@ -207,13 +207,23 @@ public class NotifierWorker extends Worker {
         saveStatus(statusNote);
     }
 
-    /** Runs a check right away (used when the Travian Tools screen is opened). */
-    static void requestCheckNow(Context ctx) {
-        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(NotifierWorker.class)
-                .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .build();
-        WorkManager.getInstance(ctx.getApplicationContext())
-                .enqueueUniqueWork(CHECK_NOW_WORK_NAME, ExistingWorkPolicy.KEEP, request);
+    /**
+     * Runs a check right away (used when the Travian Tools screen is opened). Returns false if the
+     * scheduler isn't set up yet: the game sets up WorkManager itself when it first starts, so on a
+     * fresh install, before the game has ever been opened, there is nothing to run the check with.
+     */
+    static boolean requestCheckNow(Context ctx) {
+        try {
+            OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(NotifierWorker.class)
+                    .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .build();
+            WorkManager.getInstance(ctx.getApplicationContext())
+                    .enqueueUniqueWork(CHECK_NOW_WORK_NAME, ExistingWorkPolicy.KEEP, request);
+            return true;
+        } catch (IllegalStateException e) {
+            Log.i(TAG, "can't start a check yet, WorkManager isn't set up until the game has been opened: " + e.getMessage());
+            return false;
+        }
     }
 
     /** Saves what the Travian Tools screen shows: when this check ran, and what it saw. */
