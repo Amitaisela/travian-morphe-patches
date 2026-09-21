@@ -1,3 +1,9 @@
+## [1.9.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.8.0...v1.9.0) (2026-09-21)
+
+### ✨ New Features
+
+* **Travian: Legends:** give the Travian Tools screens a cleaner look with cards, light and dark colours ([3ef665d](https://github.com/Amitaisela/travian-morphe-patches/commit/3ef665d59a054e5db6955ce0434f59d45643e184))
+
 ## [1.8.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.7.0...v1.8.0) (2026-09-21)
 
 ### ✨ New Features
