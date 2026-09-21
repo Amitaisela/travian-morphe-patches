@@ -1,7 +1,9 @@
 package com.travianpatch.notifier;
 
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -58,11 +60,18 @@ public class NotifierWorker extends Worker {
 
     private static final String TAG = "TravianNotifier";
     private static final String CHANNEL_ID = NotifierBootstrap.CHANNEL_ID;
-    private static final String STATE_PREFS = "travian_notifier_state";
+    /** Also read by the Alerts screen. */
+    static final String STATE_PREFS = "travian_notifier_state";
     private static final String STATE_KEY = "tracked_events";
     private static final long SESSION_SEED_TTL_MS = TimeUnit.DAYS.toMillis(3650);
 
     static final String NEXT_WORK_NAME = "travian-notifier-next";
+    /** Separate unique-work name for the Alerts screen's "Check now", so it never replaces the chain. */
+    static final String CHECK_NOW_WORK_NAME = "travian-notifier-now";
+    /** State-prefs keys the Alerts screen reads. */
+    static final String KEY_HISTORY = "notification_history";
+    static final String KEY_STATUS = "check_status";
+    private static final int PENDING_FLAGS = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
     private static final String KEY_RETRIES = "retries";
     /** Wait a few seconds past the finish time so the server has processed the completion. */
     private static final long SETTLE_BUFFER_MS = 3_000L;
@@ -91,6 +100,12 @@ public class NotifierWorker extends Worker {
     private long nextWakeMs = Long.MAX_VALUE;
     private boolean lagging = false;
     private int currentTribeId = -1; // tribe of the village being read, for logging trained unit ids
+    // what this run saw, saved for the Alerts screen (-1 = not checked)
+    private String statusNote = "OK";
+    private int statBuilds = -1;
+    private int statTrainings = -1;
+    private int statAttacks = -1;
+    private int statArrivals = -1;
 
     public NotifierWorker(@NonNull Context context, @NonNull WorkerParameters params) {
         super(context, params);
@@ -116,6 +131,7 @@ public class NotifierWorker extends Worker {
                 // recheck so the first check after logging in happens within minutes, not at the next
                 // ~15 minute safety job.
                 Log.i(TAG, "no game session found (not logged into the game yet), will look again");
+                statusNote = "Not logged in to the game yet";
                 scheduleNextCheck();
                 return Result.success();
             }
@@ -140,6 +156,7 @@ public class NotifierWorker extends Worker {
 
             gameworldHost = resumeSession(http, jar, sessionCookie);
             if (gameworldHost == null) {
+                statusNote = "The game's login was not accepted, will try again";
                 scheduleNextCheck(); // the game's session wasn't usable right now; try again later
                 return Result.success();
             }
@@ -150,6 +167,7 @@ public class NotifierWorker extends Worker {
             return Result.success();
         } catch (Exception e) {
             Log.w(TAG, "notifier check failed, will retry: " + e);
+            saveStatus("Last check failed, will retry", 0);
             return Result.retry();
         }
     }
@@ -183,6 +201,14 @@ public class NotifierWorker extends Worker {
         WorkManager.getInstance(getApplicationContext())
                 .enqueueUniqueWork(NEXT_WORK_NAME, ExistingWorkPolicy.REPLACE, request);
         Log.i(TAG, "next check scheduled in " + (delayMs / 1000) + "s");
+        saveStatus(statusNote, now + delayMs);
+    }
+
+    /** Saves what the Alerts screen shows: when this check ran, when the next is due, what was seen. */
+    private void saveStatus(String note, long nextCheckMs) {
+        AlertStatus status = new AlertStatus(System.currentTimeMillis(), nextCheckMs, note,
+                statBuilds, statTrainings, statAttacks, statArrivals);
+        statePrefs().edit().putString(KEY_STATUS, status.toJson()).apply();
     }
 
     /** Records a finish time from the server: schedules around it, or flags server lag if it just passed. */
@@ -436,9 +462,19 @@ public class NotifierWorker extends Worker {
                 Log.i(TAG, "event " + entry.getKey() + " vanished before its finish time (cancelled or sped up), not notifying");
                 continue;
             }
-            notify(describeCompletion(gone));
+            notify(NotificationKind.forTrackedKind(gone.kind), describeCompletion(gone));
         }
         saveTrackedState(stillActive);
+        int buildCount = 0;
+        for (TrackedEvent ev : stillActive.values()) {
+            if ("build".equals(ev.kind)) {
+                buildCount++;
+            }
+        }
+        statBuilds = buildCount;
+        statTrainings = stillActive.size() - buildCount;
+        statAttacks = withMovements ? attacks.size() : -1;
+        statArrivals = withMovements ? arrivals.size() : -1;
         if (withMovements) {
             announceAttacks(attacks);
             reportArrivals(arrivals);
@@ -459,7 +495,7 @@ public class NotifierWorker extends Worker {
         int reminders = 0;
         for (AttackAlerts.Alert alert : attacks) {
             if (!announced.containsKey(alert.key)) {
-                postNotification(ATTACK_CHANNEL_ID, AttackAlerts.title(alert), AttackAlerts.describe(alert, now),
+                postNotification(NotificationKind.ATTACK_INCOMING, AttackAlerts.title(alert), AttackAlerts.describe(alert, now),
                         alert.key.hashCode(), NotificationCompat.PRIORITY_MAX);
                 announced.put(alert.key, alert.arrivalMs);
                 fresh++;
@@ -468,7 +504,7 @@ public class NotifierWorker extends Worker {
                 continue;
             }
             if (AttackAlerts.reminderDue(alert, now)) {
-                postNotification(ATTACK_CHANNEL_ID, AttackAlerts.reminderTitle(alert),
+                postNotification(NotificationKind.ATTACK_REMINDER, AttackAlerts.reminderTitle(alert),
                         AttackAlerts.reminderText(alert, now), alert.key.hashCode() + 1, NotificationCompat.PRIORITY_MAX);
                 reminded.put(alert.key, alert.arrivalMs);
                 reminders++;
@@ -506,7 +542,8 @@ public class NotifierWorker extends Worker {
                 Log.i(TAG, "movement " + entry.getKey() + " vanished before it arrived (recalled?), not notifying");
                 continue;
             }
-            postNotification(CHANNEL_ID, "Travian: Legends", gone.text, gone.key.hashCode(), NotificationCompat.PRIORITY_HIGH);
+            postNotification(NotificationKind.forArrivalKey(gone.key), "Travian: Legends", gone.text,
+                    gone.key.hashCode(), NotificationCompat.PRIORITY_HIGH);
             notified++;
         }
         saveTrackedArrivals(current);
@@ -724,12 +761,19 @@ public class NotifierWorker extends Worker {
     // notification -- one-shot and dismissible, no ongoing/foreground notice
     // ------------------------------------------------------------------
 
-    private void notify(String text) {
-        postNotification(CHANNEL_ID, "Travian: Legends", text,
+    private void notify(NotificationKind kind, String text) {
+        postNotification(kind, "Travian: Legends", text,
                 (int) System.currentTimeMillis(), NotificationCompat.PRIORITY_HIGH);
     }
 
-    private void postNotification(String channelId, String title, String text, int id, int priority) {
+    /**
+     * The one place every notification goes through: checks the user's switch for this type, records
+     * it in the history (also when muted, so the Alerts screen can show what was skipped), and adds
+     * the tap-to-open-the-game action plus a shortcut to the Alerts screen. A switched-off type is
+     * still tracked (the caller has already advanced its state); only the display is skipped, so
+     * switching it back on never dumps old alerts.
+     */
+    private void postNotification(NotificationKind kind, String title, String text, int id, int priority) {
         Context ctx = getApplicationContext();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             int granted = ctx.checkSelfPermission("android.permission.POST_NOTIFICATIONS");
@@ -738,15 +782,35 @@ public class NotifierWorker extends Worker {
                 return;
             }
         }
+        boolean muted = !NotifierSettings.isEnabled(ctx, kind);
+        recordHistory(kind, title, text, muted);
+        if (muted) {
+            Log.i(TAG, "muted (" + kind.id + "), not notifying: " + text);
+            return;
+        }
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, channelId)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(
+                ctx, kind.attackChannel ? ATTACK_CHANNEL_ID : CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setSmallIcon(android.R.drawable.ic_popup_reminder)
                 .setPriority(priority)
                 .setAutoCancel(true);
+        Intent openGame = GameLauncher.launchIntent(ctx);
+        if (openGame != null) {
+            builder.setContentIntent(PendingIntent.getActivity(ctx, 0, openGame, PENDING_FLAGS));
+        }
+        Intent openSettings = new Intent(ctx, AlertsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        builder.addAction(0, "Alert settings", PendingIntent.getActivity(ctx, 1, openSettings, PENDING_FLAGS));
         nm.notify(id, builder.build());
         Log.i(TAG, "notified: " + title + " " + text);
+    }
+
+    private void recordHistory(NotificationKind kind, String title, String text, boolean muted) {
+        SharedPreferences prefs = statePrefs();
+        String updated = NotificationHistory.add(prefs.getString(KEY_HISTORY, null),
+                new NotificationHistory.Entry(System.currentTimeMillis(), kind.id, title, text, muted));
+        prefs.edit().putString(KEY_HISTORY, updated).apply();
     }
 }
