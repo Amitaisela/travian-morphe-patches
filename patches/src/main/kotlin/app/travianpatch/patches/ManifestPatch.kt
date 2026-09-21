@@ -3,8 +3,9 @@ package app.travianpatch.patches
 import app.morphe.patcher.patch.resourcePatch
 
 /**
- * Adds the one manifest permission the notifier needs: REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
- * so NotifierBootstrap can fire the system "ignore battery optimizations?" dialog. Everything
+ * Adds the manifest entries the notifier needs: the REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission,
+ * so NotifierBootstrap can fire the system "ignore battery optimizations?" dialog, and the Travian
+ * Alerts Activity (see ALERTS_ACTIVITY below). Everything
  * else (WorkManager's own components) is already merged in from the app's own bundled copy.
  *
  * Uses raw text editing rather than the document()/DOM API: this app's original (unmodified)
@@ -20,7 +21,8 @@ import app.morphe.patcher.patch.resourcePatch
  */
 val manifestPatch = resourcePatch(
     name = "Travian notifier manifest entry",
-    description = "Adds the permission needed to ask for a battery optimization exemption.",
+    description = "Adds the permission needed to ask for a battery optimization exemption, and the " +
+        "Travian Alerts screen.",
     default = true,
 ) {
     compatibleWith(Constants.COMPATIBILITY_TRAVIAN_LEGENDS)
@@ -44,10 +46,33 @@ val manifestPatch = resourcePatch(
             if (code != null && code < 0x20 && code != 0x9 && code != 0xA && code != 0xD) "" else match.value
         }
 
-        val patched = sanitized.replaceFirst(marker, permission + marker)
+        val closing = "</application>"
+        check(sanitized.contains(closing)) { "Could not find </application> in AndroidManifest.xml" }
+
+        val patched = sanitized
+            .replaceFirst(marker, permission + marker)
+            .replaceFirst(closing, ALERTS_ACTIVITY + closing)
         manifestFile.writeText(patched)
     }
 }
 
 /** Numeric character references, hex (group 1) or decimal (group 2). */
 private val NUMERIC_CHAR_REF = Regex("&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));")
+
+/**
+ * The Travian Alerts screen. Its own launcher icon (it reuses the app's icon, labelled differently),
+ * and its own task affinity so opening it never gets stacked onto the running game.
+ */
+private val ALERTS_ACTIVITY = """
+        <activity
+            android:name="com.travianpatch.notifier.AlertsActivity"
+            android:exported="true"
+            android:label="Travian Alerts"
+            android:taskAffinity="com.traviangames.travianlegendsmobile.alerts"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    """.trimIndent() + "\n"

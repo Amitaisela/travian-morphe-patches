@@ -5,6 +5,8 @@ Patches for the **Travian: Legends** Android app that notify you about what's ha
 - **Build and troop training finished**, with the building or unit, level and village.
 - **Incoming attacks and raids**, with who is attacking, where from and when they land, plus a second warning about a minute before they arrive.
 - **Reinforcements and your own troops arriving**, with where they came from and how many.
+- **Tap a notification to open the game.**
+- **A "Travian Alerts" screen** (its own icon) where you switch each type of notification on or off, see when the last and next check happen, and see your recent notifications.
 
 It uses the session you are already logged in with in the game, so **no password is ever entered or stored by the patch**, and it works the same whichever way you log in. There is no permanent notification icon: checks run quietly in the background (about every 5 minutes, and again right when something is due), and you only see a notification when something happened. On first launch it asks once for notification permission and for a battery-optimization exemption so Android doesn't stop the background checks.
 
