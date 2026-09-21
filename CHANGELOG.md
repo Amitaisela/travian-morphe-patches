@@ -1,3 +1,9 @@
+## [1.12.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.11.1...v1.12.0) (2026-09-21)
+
+### ✨ New Features
+
+* **Travian: Legends:** add a Queues screen showing what is building and training with the time left ([2e9257d](https://github.com/Amitaisela/travian-morphe-patches/commit/2e9257d98165e9446229fbf9b9dec03a35c60656))
+
 ## [1.11.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.11.0...v1.11.1) (2026-09-21)
 
 ### 🐛 Bug Fixes
