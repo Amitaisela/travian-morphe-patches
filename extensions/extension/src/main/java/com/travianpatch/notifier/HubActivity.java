@@ -62,16 +62,21 @@ public class HubActivity extends Activity {
 
     private View buildContent() {
         LinearLayout column = UiKit.column(this);
-        column.addView(UiKit.text(this, "Travian Tools", 26, true, UiKit.TEXT));
+        column.addView(UiKit.title(this, "Travian Tools"));
+        column.addView(UiKit.muted(this, "Helpers for your Travian game"));
 
         column.addView(UiKit.section(this, "Status"));
-        notificationsView = UiKit.text(this, "", 14, false, UiKit.TEXT);
-        lastCheckView = UiKit.text(this, "", 14, false, UiKit.TEXT);
-        watchingView = UiKit.text(this, "", 14, false, UiKit.TEXT);
-        column.addView(notificationsView);
-        column.addView(lastCheckView);
-        column.addView(watchingView);
-        column.addView(UiKit.button(this, "Open Travian", new View.OnClickListener() {
+        LinearLayout status = UiKit.card(this);
+        notificationsView = UiKit.body(this, "");
+        lastCheckView = UiKit.body(this, "");
+        watchingView = UiKit.body(this, "");
+        lastCheckView.setPadding(0, UiKit.dp(this, 6), 0, 0);
+        watchingView.setPadding(0, UiKit.dp(this, 6), 0, 0);
+        status.addView(notificationsView);
+        status.addView(lastCheckView);
+        status.addView(watchingView);
+        column.addView(status, UiKit.cardParams(this));
+        column.addView(UiKit.primaryButton(this, "Open Travian", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 openGame();
@@ -79,18 +84,18 @@ public class HubActivity extends Activity {
         }));
 
         column.addView(UiKit.section(this, "Tools"));
-        column.addView(UiKit.button(this, "Notifications", new View.OnClickListener() {
+        column.addView(UiKit.menuRow(this, "Notifications", "Choose which alerts you get", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 startActivity(new Intent(HubActivity.this, NotificationSettingsActivity.class));
             }
-        }));
-        column.addView(UiKit.button(this, "Recent notifications", new View.OnClickListener() {
+        }), UiKit.cardParams(this));
+        column.addView(UiKit.menuRow(this, "Recent notifications", "What was sent lately", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 startActivity(new Intent(HubActivity.this, RecentActivity.class));
             }
-        }));
+        }), UiKit.cardParams(this));
         return UiKit.page(this, column);
     }
 

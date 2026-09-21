@@ -18,13 +18,20 @@ public class RecentActivity extends Activity {
     private static final long REFRESH_MS = 2000L;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView historyView;
+    private LinearLayout list;
+    /** The stored history last drawn, so the list is only rebuilt when it changed. */
+    private String drawn = "not drawn yet";
 
     private final Runnable refresh = new Runnable() {
         @Override
         public void run() {
             SharedPreferences state = getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE);
-            historyView.setText(historyText(NotificationHistory.read(state.getString(NotifierWorker.KEY_HISTORY, null))));
+            String history = state.getString(NotifierWorker.KEY_HISTORY, null);
+            String current = "history:" + history;
+            if (!current.equals(drawn)) {
+                drawn = current;
+                draw(NotificationHistory.read(history));
+            }
             handler.postDelayed(this, REFRESH_MS);
         }
     };
@@ -49,26 +56,42 @@ public class RecentActivity extends Activity {
 
     private View buildContent() {
         LinearLayout column = UiKit.column(this);
-        column.addView(UiKit.text(this, "Recent notifications", 26, true, UiKit.TEXT));
-        column.addView(UiKit.text(this, "Newest first. \"(muted)\" means the switch for that type was off, "
-                + "so nothing was shown.", 14, false, UiKit.MUTED));
-        historyView = UiKit.text(this, "", 14, false, UiKit.TEXT);
-        historyView.setPadding(0, UiKit.dp(this, 12), 0, 0);
-        column.addView(historyView);
+        column.addView(UiKit.title(this, "Recent notifications"));
+        column.addView(UiKit.muted(this, "Newest first. Muted means the switch for that type was off, "
+                + "so nothing was shown."));
+        column.addView(UiKit.section(this, "History"));
+        list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        column.addView(list, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         return UiKit.page(this, column);
     }
 
-    private static String historyText(List<NotificationHistory.Entry> entries) {
+    private void draw(List<NotificationHistory.Entry> entries) {
+        list.removeAllViews();
         if (entries.isEmpty()) {
-            return "Nothing yet. Notifications you get will be listed here.";
+            LinearLayout empty = UiKit.card(this);
+            empty.addView(UiKit.muted(this, "Nothing yet. Notifications you get will be listed here."));
+            list.addView(empty, UiKit.cardParams(this));
+            return;
         }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < entries.size(); i++) {
-            if (i > 0) {
-                sb.append("\n\n");
-            }
-            sb.append(NotificationHistory.line(entries.get(i)));
+        for (NotificationHistory.Entry entry : entries) {
+            list.addView(entryCard(entry), UiKit.cardParams(this));
         }
-        return sb.toString();
+    }
+
+    private View entryCard(NotificationHistory.Entry entry) {
+        LinearLayout card = UiKit.card(this);
+        NotificationKind kind = NotificationKind.fromId(entry.kindId);
+        String label = (kind != null ? kind.label : entry.title) + "  \u00B7  " + NotificationHistory.time(entry.timeMs)
+                + (entry.muted ? "  \u00B7  muted" : "");
+        card.addView(UiKit.text(this, label, 12, true, entry.muted ? UiKit.mutedColor(this) : UiKit.accentText(this)));
+        TextView text = UiKit.body(this, entry.text);
+        text.setPadding(0, UiKit.dp(this, 4), 0, 0);
+        if (entry.muted) {
+            text.setTextColor(UiKit.mutedColor(this));
+        }
+        card.addView(text);
+        return card;
     }
 }

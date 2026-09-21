@@ -6,7 +6,6 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.TypedValue;
 import android.view.View;
 import android.widget.CompoundButton;
 import android.widget.LinearLayout;
@@ -57,37 +56,35 @@ public class NotificationSettingsActivity extends Activity {
 
     private View buildContent() {
         LinearLayout column = UiKit.column(this);
-        column.addView(UiKit.text(this, "Notifications", 26, true, UiKit.TEXT));
-        column.addView(UiKit.text(this, "Choose which notifications you want. Changes apply right away. "
-                + "A switched-off type is still counted below.", 14, false, UiKit.MUTED));
+        column.addView(UiKit.title(this, "Notifications"));
+        column.addView(UiKit.muted(this, "Choose which notifications you want. Changes apply right away. "
+                + "A switched-off type is still counted."));
+        column.addView(UiKit.section(this, "Alerts"));
         for (NotificationKind kind : NotificationKind.values()) {
-            column.addView(switchRow(kind));
+            column.addView(switchCard(kind), UiKit.cardParams(this));
         }
         return UiKit.page(this, column);
     }
 
-    private View switchRow(final NotificationKind kind) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(0, UiKit.dp(this, 12), 0, UiKit.dp(this, 4));
-
-        Switch toggle = new Switch(this);
-        toggle.setText(kind.label);
-        toggle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        toggle.setChecked(NotifierSettings.isEnabled(this, kind));
+    private View switchCard(final NotificationKind kind) {
+        LinearLayout card = UiKit.card(this);
+        Switch toggle = UiKit.accentSwitch(this, kind.label, NotifierSettings.isEnabled(this, kind));
         toggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton button, boolean checked) {
                 NotifierSettings.setEnabled(NotificationSettingsActivity.this, kind, checked);
             }
         });
-        row.addView(toggle, new LinearLayout.LayoutParams(
+        card.addView(toggle, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        row.addView(UiKit.text(this, kind.description, 13, false, UiKit.MUTED));
-        TextView count = UiKit.text(this, "", 13, false, UiKit.MUTED);
+        TextView description = UiKit.muted(this, kind.description);
+        description.setPadding(0, UiKit.dp(this, 4), 0, 0);
+        card.addView(description);
+        TextView count = UiKit.text(this, "", 13, true, UiKit.accentText(this));
+        count.setPadding(0, UiKit.dp(this, 6), 0, 0);
         countViews.put(kind, count);
-        row.addView(count);
-        return row;
+        card.addView(count);
+        return card;
     }
 
     /** Updates the counts only (never the switches, so a tap in progress isn't fought). */

@@ -86,8 +86,12 @@ final class NotificationHistory {
         return count == 0 ? "none in the last 24 h" : count + " in the last 24 h";
     }
 
+    static String time(long timeMs) {
+        return new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date(timeMs));
+    }
+
     static String line(Entry e) {
-        String time = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date(e.timeMs));
+        String time = time(e.timeMs);
         return time + "  " + e.title + (e.muted ? "  (muted)" : "") + "\n" + e.text;
     }
 
