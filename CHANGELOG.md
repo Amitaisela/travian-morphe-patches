@@ -1,3 +1,9 @@
+## [1.10.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.10.0...v1.10.1) (2026-09-21)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** stop Travian Tools crashing when opened before the game has ever run ([48a61b1](https://github.com/Amitaisela/travian-morphe-patches/commit/48a61b15c2138ca3aba4de0906c0d57068c32152))
+
 ## [1.10.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.9.0...v1.10.0) (2026-09-21)
 
 ### ✨ New Features
