@@ -9,7 +9,7 @@ import android.content.pm.ResolveInfo;
 /**
  * The intent that opens the Travian game, same as tapping its icon (the game's launcher Activity is
  * singleTask, so a running game is brought to the front instead of restarted). Uses the game's
- * Activity by name rather than getLaunchIntentForPackage, because the Alerts screen is a second
+ * Activity by name rather than getLaunchIntentForPackage, because the Travian Tools screen is a second
  * launcher Activity in this package and that call could pick it instead.
  */
 final class GameLauncher {
@@ -20,7 +20,7 @@ final class GameLauncher {
     private GameLauncher() {
     }
 
-    /** Null if no launcher Activity other than the Alerts screen can be found. */
+    /** Null if no launcher Activity other than the Travian Tools screen can be found. */
     static Intent launchIntent(Context ctx) {
         PackageManager pm = ctx.getPackageManager();
         String pkg = ctx.getPackageName();
@@ -29,10 +29,10 @@ final class GameLauncher {
             return explicit;
         }
         // The game's launcher class was renamed (an app version this patch hasn't seen): take the first
-        // launcher entry of this package that isn't the Alerts screen.
+        // launcher entry of this package that isn't the Travian Tools screen.
         Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(pkg);
         for (ResolveInfo info : pm.queryIntentActivities(query, 0)) {
-            if (!AlertsActivity.class.getName().equals(info.activityInfo.name)) {
+            if (!HubActivity.class.getName().equals(info.activityInfo.name)) {
                 return launcher().setClassName(info.activityInfo.packageName, info.activityInfo.name);
             }
         }

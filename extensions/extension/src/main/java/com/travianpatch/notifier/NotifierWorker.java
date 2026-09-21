@@ -60,15 +60,15 @@ public class NotifierWorker extends Worker {
 
     private static final String TAG = "TravianNotifier";
     private static final String CHANNEL_ID = NotifierBootstrap.CHANNEL_ID;
-    /** Also read by the Alerts screen. */
+    /** Also read by the Travian Tools screens. */
     static final String STATE_PREFS = "travian_notifier_state";
     private static final String STATE_KEY = "tracked_events";
     private static final long SESSION_SEED_TTL_MS = TimeUnit.DAYS.toMillis(3650);
 
     static final String NEXT_WORK_NAME = "travian-notifier-next";
-    /** Separate unique-work name for the Alerts screen's "Check now", so it never replaces the chain. */
+    /** Separate unique-work name for the check the Travian Tools screen asks for, so it never replaces the chain. */
     static final String CHECK_NOW_WORK_NAME = "travian-notifier-now";
-    /** State-prefs keys the Alerts screen reads. */
+    /** State-prefs keys the Travian Tools screens read. */
     static final String KEY_HISTORY = "notification_history";
     static final String KEY_STATUS = "check_status";
     private static final int PENDING_FLAGS = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
@@ -100,7 +100,7 @@ public class NotifierWorker extends Worker {
     private long nextWakeMs = Long.MAX_VALUE;
     private boolean lagging = false;
     private int currentTribeId = -1; // tribe of the village being read, for logging trained unit ids
-    // what this run saw, saved for the Alerts screen (-1 = not checked)
+    // what this run saw, saved for the Travian Tools screen (-1 = not checked)
     private String statusNote = "OK";
     private int statBuilds = -1;
     private int statTrainings = -1;
@@ -167,7 +167,7 @@ public class NotifierWorker extends Worker {
             return Result.success();
         } catch (Exception e) {
             Log.w(TAG, "notifier check failed, will retry: " + e);
-            saveStatus("Last check failed, will retry", 0);
+            saveStatus("Last check failed, will retry");
             return Result.retry();
         }
     }
@@ -201,12 +201,21 @@ public class NotifierWorker extends Worker {
         WorkManager.getInstance(getApplicationContext())
                 .enqueueUniqueWork(NEXT_WORK_NAME, ExistingWorkPolicy.REPLACE, request);
         Log.i(TAG, "next check scheduled in " + (delayMs / 1000) + "s");
-        saveStatus(statusNote, now + delayMs);
+        saveStatus(statusNote);
     }
 
-    /** Saves what the Alerts screen shows: when this check ran, when the next is due, what was seen. */
-    private void saveStatus(String note, long nextCheckMs) {
-        AlertStatus status = new AlertStatus(System.currentTimeMillis(), nextCheckMs, note,
+    /** Runs a check right away (used when the Travian Tools screen is opened). */
+    static void requestCheckNow(Context ctx) {
+        OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(NotifierWorker.class)
+                .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .build();
+        WorkManager.getInstance(ctx.getApplicationContext())
+                .enqueueUniqueWork(CHECK_NOW_WORK_NAME, ExistingWorkPolicy.KEEP, request);
+    }
+
+    /** Saves what the Travian Tools screen shows: when this check ran, and what it saw. */
+    private void saveStatus(String note) {
+        AlertStatus status = new AlertStatus(System.currentTimeMillis(), note,
                 statBuilds, statTrainings, statAttacks, statArrivals);
         statePrefs().edit().putString(KEY_STATUS, status.toJson()).apply();
     }
@@ -768,13 +777,16 @@ public class NotifierWorker extends Worker {
 
     /**
      * The one place every notification goes through: checks the user's switch for this type, records
-     * it in the history (also when muted, so the Alerts screen can show what was skipped), and adds
-     * the tap-to-open-the-game action plus a shortcut to the Alerts screen. A switched-off type is
+     * it in the history (also when muted, so the screens can show and count what was skipped), and adds
+     * the tap-to-open-the-game action plus a shortcut to the Notifications screen. A switched-off type is
      * still tracked (the caller has already advanced its state); only the display is skipped, so
      * switching it back on never dumps old alerts.
      */
     private void postNotification(NotificationKind kind, String title, String text, int id, int priority) {
         Context ctx = getApplicationContext();
+        // Recorded first, so the 24 h counts include events Android would have blocked too.
+        boolean muted = !NotifierSettings.isEnabled(ctx, kind);
+        recordHistory(kind, title, text, muted);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             int granted = ctx.checkSelfPermission("android.permission.POST_NOTIFICATIONS");
             if (granted != PackageManager.PERMISSION_GRANTED) {
@@ -782,8 +794,6 @@ public class NotifierWorker extends Worker {
                 return;
             }
         }
-        boolean muted = !NotifierSettings.isEnabled(ctx, kind);
-        recordHistory(kind, title, text, muted);
         if (muted) {
             Log.i(TAG, "muted (" + kind.id + "), not notifying: " + text);
             return;
@@ -801,7 +811,7 @@ public class NotifierWorker extends Worker {
         if (openGame != null) {
             builder.setContentIntent(PendingIntent.getActivity(ctx, 0, openGame, PENDING_FLAGS));
         }
-        Intent openSettings = new Intent(ctx, AlertsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Intent openSettings = new Intent(ctx, NotificationSettingsActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         builder.addAction(0, "Alert settings", PendingIntent.getActivity(ctx, 1, openSettings, PENDING_FLAGS));
         nm.notify(id, builder.build());
         Log.i(TAG, "notified: " + title + " " + text);

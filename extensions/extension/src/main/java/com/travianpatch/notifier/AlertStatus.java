@@ -6,23 +6,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * What the last background check saw and when the next one is due, written by the worker and shown
- * live on the Alerts screen. Pure logic (no Android APIs) so it can be checked against sample data
+ * What the last background check saw, written by the worker and shown on the Travian Tools screen.
+ * Pure logic (no Android APIs) so it can be checked against sample data
  * off-device.
  */
 final class AlertStatus {
 
     final long lastCheckMs; // 0 = never
-    final long nextCheckMs; // 0 = unknown
     final String note; // short plain-language result of the last check
     final int builds; // -1 = not checked
     final int trainings;
     final int attacks;
     final int arrivals;
 
-    AlertStatus(long lastCheckMs, long nextCheckMs, String note, int builds, int trainings, int attacks, int arrivals) {
+    AlertStatus(long lastCheckMs, String note, int builds, int trainings, int attacks, int arrivals) {
         this.lastCheckMs = lastCheckMs;
-        this.nextCheckMs = nextCheckMs;
         this.note = note == null ? "" : note;
         this.builds = builds;
         this.trainings = trainings;
@@ -31,14 +29,13 @@ final class AlertStatus {
     }
 
     static AlertStatus empty() {
-        return new AlertStatus(0, 0, "", -1, -1, -1, -1);
+        return new AlertStatus(0, "", -1, -1, -1, -1);
     }
 
     String toJson() {
         try {
             JSONObject o = new JSONObject();
             o.put("last", lastCheckMs);
-            o.put("next", nextCheckMs);
             o.put("note", note);
             o.put("b", builds);
             o.put("t", trainings);
@@ -56,7 +53,7 @@ final class AlertStatus {
         }
         try {
             JSONObject o = new JSONObject(json);
-            return new AlertStatus(o.optLong("last", 0), o.optLong("next", 0), o.optString("note", ""),
+            return new AlertStatus(o.optLong("last", 0), o.optString("note", ""),
                     o.optInt("b", -1), o.optInt("t", -1), o.optInt("a", -1), o.optInt("m", -1));
         } catch (Exception e) {
             return empty();
@@ -68,16 +65,6 @@ final class AlertStatus {
             return "Last check: none yet";
         }
         return "Last check: " + duration(nowMs - lastCheckMs) + " ago" + (note.length() > 0 ? " — " + note : "");
-    }
-
-    String nextCheckLine(long nowMs) {
-        if (nextCheckMs <= 0) {
-            return "Next check: soon (Android decides when)";
-        }
-        if (nextCheckMs <= nowMs) {
-            return "Next check: any moment now";
-        }
-        return "Next check: in " + duration(nextCheckMs - nowMs);
     }
 
     String watchingLine() {

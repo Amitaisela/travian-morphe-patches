@@ -60,7 +60,7 @@ public final class NotifierBootstrap {
         }
     }
 
-    /** Also called by the Alerts screen, which can be opened before the game ever was. */
+    /** Also called by the Travian Tools screens, which can be opened before the game ever was. */
     static void ensureChannels(Context ctx) {
         createChannel(ctx);
     }

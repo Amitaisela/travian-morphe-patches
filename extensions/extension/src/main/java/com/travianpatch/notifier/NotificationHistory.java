@@ -10,13 +10,14 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The last few notifications the notifier produced (shown or muted), kept as a small JSON string
- * so the Alerts screen can list them. Pure logic (no Android APIs) so it can be checked against
+ * The last notifications the notifier produced (shown or muted), kept as a small JSON string so
+ * the Travian Tools screens can list and count them. Pure logic (no Android APIs) so it can be checked against
  * sample data off-device.
  */
 final class NotificationHistory {
 
-    static final int MAX_ENTRIES = 50;
+    static final int MAX_ENTRIES = 200;
+    private static final long DAY_MS = 24L * 60 * 60 * 1000;
 
     static final class Entry {
         final long timeMs;
@@ -68,6 +69,21 @@ final class NotificationHistory {
             out.clear(); // unreadable: start over rather than show half of it
         }
         return out;
+    }
+
+    /** How many notifications of this kind happened in the 24 hours before nowMs, muted ones included. */
+    static int countLast24h(String json, String kindId, long nowMs) {
+        int count = 0;
+        for (Entry e : read(json)) {
+            if (e.kindId.equals(kindId) && e.timeMs > nowMs - DAY_MS) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    static String countLabel(int count) {
+        return count == 0 ? "none in the last 24 h" : count + " in the last 24 h";
     }
 
     static String line(Entry e) {

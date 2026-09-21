@@ -1,7 +1,7 @@
 package com.travianpatch.notifier;
 
 /**
- * Every type of notification the user can switch on or off on the Alerts screen. The screen builds
+ * Every type of notification the user can switch on or off on the Notifications screen. The screen builds
  * its switches from this list, so adding a new alert type means adding one entry here.
  * Pure logic (no Android APIs) so it can be checked against sample data off-device.
  */
