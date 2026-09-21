@@ -94,6 +94,7 @@ public class NotifierWorker extends Worker {
     private static final String KEY_STORAGE_ALERTED = "storage_alerted";
     private static final String KEY_HERO_LOGGED = "hero_logged";
     private static final String KEY_HERO_STATE = "hero_state";
+    private static final String KEY_FARM_LOGGED_AT = "farm_logged_at";
     /** If the game rejects the movements part of the poll query, skip it until this time (epoch ms). */
     private static final String KEY_MOVEMENTS_OFF_UNTIL = "movements_off_until";
     private static final String ATTACK_CHANNEL_ID = NotifierBootstrap.ATTACK_CHANNEL_ID;
@@ -530,6 +531,11 @@ public class NotifierWorker extends Worker {
         } catch (Exception e) {
             Log.w(TAG, "hero data check failed: " + e);
         }
+        try {
+            logFarmLists(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "farm list log failed: " + e);
+        }
     }
 
     private JSONObject runQuery(OkHttpClient http, String gameworldHost, String selection) throws Exception {
@@ -613,6 +619,60 @@ public class NotifierWorker extends Worker {
         Log.i(TAG, "hero checked: " + result.events.size() + " change(s), alive=" + result.next.alive
                 + " health=" + result.next.health + " adventures=" + result.next.adventures
                 + " atHome=" + result.next.atHome);
+    }
+
+    /**
+     * Diagnostic only, at most every 30 minutes: writes the player's farm lists, and the field names the
+     * game's server knows for them, to the log. It sends nothing to the game and shows nothing. It exists
+     * so a farm list screen can be built on what the game really returns instead of on guesses.
+     */
+    private void logFarmLists(OkHttpClient http, String gameworldHost) {
+        SharedPreferences prefs = statePrefs();
+        long now = System.currentTimeMillis();
+        if (now - prefs.getLong(KEY_FARM_LOGGED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
+            return;
+        }
+        prefs.edit().putLong(KEY_FARM_LOGGED_AT, now).apply();
+        String fields = "id name slotsAmount runningRaidsAmount lastStartedTime isExpanded";
+        String[] variants = {
+                "farmLists { " + fields + " }",
+                "farmLists(filter: {}) { " + fields + " }",
+                "farmLists { id name }",
+        };
+        for (String selection : variants) {
+            try {
+                JSONObject resp = runQuery(http, gameworldHost, selection);
+                JSONObject data = resp.optJSONObject("data");
+                if (data != null) {
+                    Log.i(TAG, "farm lists ok [" + selection + "]: " + cut(data.toString(), 3500));
+                    break;
+                }
+                Log.i(TAG, "farm lists query failed [" + selection + "]: " + errorSummary(resp));
+            } catch (Exception e) {
+                Log.i(TAG, "farm lists request failed [" + selection + "]: " + e);
+            }
+        }
+        logSchema(http, gameworldHost, "FarmList", "fields");
+        logSchema(http, gameworldHost, "FarmListsFilter", "inputFields");
+        logSchema(http, gameworldHost, "FarmSlot", "fields");
+    }
+
+    /** Logs the names of a GraphQL type's fields, if the server answers introspection questions. */
+    private void logSchema(OkHttpClient http, String gameworldHost, String type, String listField) {
+        try {
+            String body = "{ \"query\": \"query { __type(name: \\\"" + type + "\\\") { " + listField + " { name } } }\" }";
+            Request req = new Request.Builder()
+                    .url(gameworldHost + "/api/v1/graphql")
+                    .post(TravianApi.jsonBody(body))
+                    .build();
+            Log.i(TAG, "schema " + type + ": " + cut(TravianApi.executeJson(http, req).toString(), 1500));
+        } catch (Exception e) {
+            Log.i(TAG, "schema " + type + " not available: " + e);
+        }
+    }
+
+    private static String cut(String text, int max) {
+        return text.length() > max ? text.substring(0, max) + "..." : text;
     }
 
     /**
