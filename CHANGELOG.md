@@ -1,3 +1,9 @@
+## [1.8.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.7.0...v1.8.0) (2026-09-21)
+
+### ✨ New Features
+
+* **Travian: Legends:** tell when the attacker calls an incoming attack off ([0014db8](https://github.com/Amitaisela/travian-morphe-patches/commit/0014db893a2112c28ba422c7f6747dce8149dc8a))
+
 ## [1.7.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.6.0...v1.7.0) (2026-09-21)
 
 ### ✨ New Features
