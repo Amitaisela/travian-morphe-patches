@@ -1,3 +1,9 @@
+## [1.11.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.11.0...v1.11.1) (2026-09-21)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** write farm list data to the log, to prepare the farm list screen ([4c38ce2](https://github.com/Amitaisela/travian-morphe-patches/commit/4c38ce255b172d59bd68c4b5d79758b857bcc32b))
+
 ## [1.11.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.10.1...v1.11.0) (2026-09-21)
 
 ### ✨ New Features
