@@ -1,3 +1,15 @@
+## [1.7.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.6.0...v1.7.0) (2026-09-21)
+
+### ✨ New Features
+
+* **Travian: Legends:** add a registry of notification types ([dbb3802](https://github.com/Amitaisela/travian-morphe-patches/commit/dbb3802fc617a0470a464106bc12acffed6ab7d6))
+* **Travian: Legends:** add an alerts screen with on/off switches, and open the game when a notification is tapped ([3a18257](https://github.com/Amitaisela/travian-morphe-patches/commit/3a18257dd49f5e58c9478ce499340b2d42a6dfca))
+* **Travian: Legends:** add the status shown on the alerts screen ([53204d6](https://github.com/Amitaisela/travian-morphe-patches/commit/53204d6f9dd312e5a82b30c03a01f9090cf67ea3))
+* **Travian: Legends:** declare the alerts screen and describe it in the patch and readme ([ebf3b05](https://github.com/Amitaisela/travian-morphe-patches/commit/ebf3b0596ee291d154a8b04a5079c8c8be37ae5b))
+* **Travian: Legends:** keep a short history of notifications ([473152a](https://github.com/Amitaisela/travian-morphe-patches/commit/473152a5a241fe5035dc05bad276c31e10c6fbb7))
+* **Travian: Legends:** put the bell badge in the top left of the Travian Tools icon ([ab5e331](https://github.com/Amitaisela/travian-morphe-patches/commit/ab5e33130e93d45c5103730d81d202bbcb8c9fcb))
+* **Travian: Legends:** turn the alerts screen into Travian Tools, with a bell icon, recent notifications and 24-hour counts ([3e84928](https://github.com/Amitaisela/travian-morphe-patches/commit/3e849281ff239a7b043ba1764e9fd4244973e066))
+
 ## [1.6.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.5.2...v1.6.0) (2026-09-18)
 
 ### ✨ New Features
