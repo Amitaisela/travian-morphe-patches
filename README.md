@@ -8,7 +8,7 @@ Patches for the **Travian: Legends** Android app that notify you about what's ha
 - **Your hero**: a new adventure is available, the hero is back home, or it died or is low on health.
 - **Reinforcements and your own troops arriving**, with where they came from and how many.
 - **Tap a notification to open the game.**
-- **A "Travian Tools" app** (its own icon, the game's icon with a bell) where you switch each type of notification on or off, see how many of each you got in the last 24 hours, check how the background checks are doing, and look through your recent notifications. More tools are planned.
+- **A "Travian Tools" app** (its own icon, the game's icon with a bell) where you switch each type of notification on or off, see how many of each you got in the last 24 hours, check how the background checks are doing, see what is building and training in each village with the time left, and look through your recent notifications. More tools are planned.
 
 It uses the session you are already logged in with in the game, so **no password is ever entered or stored by the patch**, and it works the same whichever way you log in. There is no permanent notification icon: checks run quietly in the background (about every 5 minutes, and again right when something is due), and you only see a notification when something happened. On first launch it asks once for notification permission and for a battery-optimization exemption so Android doesn't stop the background checks.
 

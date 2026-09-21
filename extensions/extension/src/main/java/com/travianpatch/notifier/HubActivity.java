@@ -92,6 +92,12 @@ public class HubActivity extends Activity {
                 startActivity(new Intent(HubActivity.this, NotificationSettingsActivity.class));
             }
         }), UiKit.cardParams(this));
+        column.addView(UiKit.menuRow(this, "Queues", "What is building and training", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(HubActivity.this, QueuesActivity.class));
+            }
+        }), UiKit.cardParams(this));
         column.addView(UiKit.menuRow(this, "Recent notifications", "What was sent lately", new View.OnClickListener() {
             @Override
             public void onClick(View v) {

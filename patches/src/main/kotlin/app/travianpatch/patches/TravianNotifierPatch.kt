@@ -17,7 +17,7 @@ val travianNotifierPatch = bytecodePatch(
         "died or is low on health, and tells you " +
         "when reinforcements or your own returning troops " +
         "arrive. Tapping a notification opens the game, and a second \"Travian Tools\" icon opens a " +
-        "home screen where you switch each type of notification on or off and see your recent ones. Uses the session you're already logged in " +
+        "home screen where you switch each type of notification on or off, see what is building and training, and see your recent ones. Uses the session you're already logged in " +
         "with in the game — no separate login, no password ever handled by this patch. Checks " +
         "run quietly in the background: one is scheduled for just after each build/training is " +
         "due to finish, plus a regular check every 5 minutes (Android may delay background " +

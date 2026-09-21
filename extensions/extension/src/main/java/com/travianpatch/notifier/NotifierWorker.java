@@ -62,7 +62,8 @@ public class NotifierWorker extends Worker {
     private static final String CHANNEL_ID = NotifierBootstrap.CHANNEL_ID;
     /** Also read by the Travian Tools screens. */
     static final String STATE_PREFS = "travian_notifier_state";
-    private static final String STATE_KEY = "tracked_events";
+    /** The queue entries seen at the last check; also read by the Queues screen. */
+    static final String STATE_KEY = "tracked_events";
     private static final long SESSION_SEED_TTL_MS = TimeUnit.DAYS.toMillis(3650);
 
     static final String NEXT_WORK_NAME = "travian-notifier-next";
