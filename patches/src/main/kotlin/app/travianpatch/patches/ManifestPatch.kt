@@ -4,9 +4,8 @@ import app.morphe.patcher.patch.resourcePatch
 
 /**
  * Adds the manifest entries the notifier needs: the REQUEST_IGNORE_BATTERY_OPTIMIZATIONS permission,
- * so NotifierBootstrap can fire the system "ignore battery optimizations?" dialog, and the Travian
- * Travian Tools screens (see TOOLS_ACTIVITIES below). Everything
- * else (WorkManager's own components) is already merged in from the app's own bundled copy.
+ * so NotifierBootstrap can fire the system "ignore battery optimizations?" dialog, and the
+ * Travian Tools screens (see TOOLS_ACTIVITIES below). Everything else (WorkManager's own components) is already merged in from the app's own bundled copy.
  *
  * Uses raw text editing rather than the document()/DOM API: this app's original (unmodified)
  * manifest contains a raw control byte in an unrelated Play Games meta-data value, which a
@@ -114,7 +113,7 @@ private val TOOLS_ICON = """
 """.trimIndent() + "\n"
 
 /**
- * A red badge with a white ring and a white bell, in the lower right of the icon, kept inside the
+ * A red badge with a white ring and a white bell, in the upper left of the icon, kept inside the
  * central area that round launcher masks never cut off.
  */
 private val BELL_BADGE = """
@@ -126,13 +125,13 @@ private val BELL_BADGE = """
         android:viewportHeight="108">
         <path
             android:fillColor="#FFFFFFFF"
-            android:pathData="M68,68m-14,0a14,14 0 1,0 28,0a14,14 0 1,0 -28,0"/>
+            android:pathData="M40,40m-14,0a14,14 0 1,0 28,0a14,14 0 1,0 -28,0"/>
         <path
             android:fillColor="#FFD32F2F"
-            android:pathData="M68,68m-12,0a12,12 0 1,0 24,0a12,12 0 1,0 -24,0"/>
+            android:pathData="M40,40m-12,0a12,12 0 1,0 24,0a12,12 0 1,0 -24,0"/>
         <group
-            android:translateX="60.8"
-            android:translateY="60.8"
+            android:translateX="32.8"
+            android:translateY="32.8"
             android:scaleX="0.6"
             android:scaleY="0.6">
             <path
