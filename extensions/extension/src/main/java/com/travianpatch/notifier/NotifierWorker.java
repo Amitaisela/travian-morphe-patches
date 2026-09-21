@@ -505,11 +505,12 @@ public class NotifierWorker extends Worker {
         statArrivals = withMovements ? arrivals.size() : -1;
         if (withMovements) {
             announceAttacks(attacks);
-            reportArrivals(arrivals);
             if (movementsComplete) {
+                reportArrivals(arrivals);
                 reportCalledOffAttacks(attacks);
             } else {
-                Log.w(TAG, "a village came back without its attack list, not checking for called-off attacks this time");
+                // "nothing listed" would look like "everything has arrived / been called off"
+                Log.w(TAG, "a village came back without its movement lists, not judging arrivals or called-off attacks this time");
             }
         }
 
