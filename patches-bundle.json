@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-21T14:18:16",
-  "description": "## [1.12.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.12.0...v1.12.1) (2026-09-21)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** don't report arrivals when the game leaves out the movement lists ([4444a3c](https://github.com/Amitaisela/travian-morphe-patches/commit/4444a3c5c448d83a427f9e5ae01d8ba702a34cfd))",
-  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.12.1/patches-1.12.1.mpp",
+  "created_at": "2026-09-22T17:03:15",
+  "description": "## [1.13.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.12.1...v1.13.0) (2026-09-22)\n\n### ✨ New Features\n\n* **Travian: Legends:** show idle villages and Gold Club status in Travian Tools ([51d56f4](https://github.com/Amitaisela/travian-morphe-patches/commit/51d56f4d44c801a759d7502968d1a13a90b0862a))",
+  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.13.0/patches-1.13.0.mpp",
   "signature_download_url": "",
-  "version": "1.12.1"
+  "version": "1.13.0"
 }

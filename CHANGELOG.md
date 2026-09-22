@@ -1,3 +1,9 @@
+## [1.13.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.12.1...v1.13.0) (2026-09-22)
+
+### ✨ New Features
+
+* **Travian: Legends:** show idle villages and Gold Club status in Travian Tools ([51d56f4](https://github.com/Amitaisela/travian-morphe-patches/commit/51d56f4d44c801a759d7502968d1a13a90b0862a))
+
 ## [1.12.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.12.0...v1.12.1) (2026-09-21)
 
 ### 🐛 Bug Fixes
