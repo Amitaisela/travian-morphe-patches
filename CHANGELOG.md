@@ -1,3 +1,9 @@
+## [1.13.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.13.1...v1.13.2) (2026-09-22)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** try the real building-cost field name in the diagnostic probe ([77db674](https://github.com/Amitaisela/travian-morphe-patches/commit/77db674f0df71d53196b936cd52354960428eac2))
+
 ## [1.13.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.13.0...v1.13.1) (2026-09-22)
 
 ### 🐛 Bug Fixes
