@@ -615,19 +615,7 @@ public class NotifierWorker extends Worker {
                 "culturePointsRank nextSlotPrediction",
                 "villages { id name culturePointsDistributionPerDay }",
         };
-        for (String selection : variants) {
-            try {
-                JSONObject resp = runQuery(http, gameworldHost, selection);
-                JSONObject data = resp.optJSONObject("data");
-                if (data != null) {
-                    Log.i(TAG, "culture points ok [" + selection + "]: " + cut(data.toString(), 2500));
-                    break;
-                }
-                Log.i(TAG, "culture points query failed [" + selection + "]: " + errorSummary(resp));
-            } catch (Exception e) {
-                Log.i(TAG, "culture points request failed [" + selection + "]: " + e);
-            }
-        }
+        runDiagnosticVariants("culture points", http, gameworldHost, variants);
         logSchema(http, gameworldHost, "Player", "fields");
     }
 
@@ -647,19 +635,7 @@ public class NotifierWorker extends Worker {
                 "villages { id name buildEvents { id buildingTypeId aspiredLevel buildingCost upgradeCostObject } }",
                 "villages { id name buildingSlots { id buildingTypeId level buildingCost upgradeCostObject } }",
         };
-        for (String selection : variants) {
-            try {
-                JSONObject resp = runQuery(http, gameworldHost, selection);
-                JSONObject data = resp.optJSONObject("data");
-                if (data != null) {
-                    Log.i(TAG, "building costs ok [" + selection + "]: " + cut(data.toString(), 2500));
-                    break;
-                }
-                Log.i(TAG, "building costs query failed [" + selection + "]: " + errorSummary(resp));
-            } catch (Exception e) {
-                Log.i(TAG, "building costs request failed [" + selection + "]: " + e);
-            }
-        }
+        runDiagnosticVariants("building costs", http, gameworldHost, variants);
         logSchema(http, gameworldHost, "BuildEvent", "fields");
     }
 
@@ -678,20 +654,38 @@ public class NotifierWorker extends Worker {
                 "marketplaceOwnOffer { id resourcePricesById }",
                 "marketplaceOffer { id resourcePricesById }",
         };
+        runDiagnosticVariants("marketplace", http, gameworldHost, variants);
+        logSchema(http, gameworldHost, "MarketplaceOffer", "fields");
+    }
+
+    /**
+     * Tries each selection in turn, logging both the data and, when present, the errors a GraphQL
+     * response can carry alongside it (a query can partially succeed: valid fields resolve while an
+     * invalid one next to them is reported as an error, instead of failing the whole request). Stops at
+     * the first variant that comes back with data and no errors; otherwise tries them all.
+     */
+    private void runDiagnosticVariants(String label, OkHttpClient http, String gameworldHost, String[] variants) {
         for (String selection : variants) {
             try {
                 JSONObject resp = runQuery(http, gameworldHost, selection);
                 JSONObject data = resp.optJSONObject("data");
+                JSONArray errors = resp.optJSONArray("errors");
                 if (data != null) {
-                    Log.i(TAG, "marketplace ok [" + selection + "]: " + cut(data.toString(), 2500));
-                    break;
+                    Log.i(TAG, label + " ok [" + selection + "]: " + cut(data.toString(), 2500));
                 }
-                Log.i(TAG, "marketplace query failed [" + selection + "]: " + errorSummary(resp));
+                if (errors != null) {
+                    Log.i(TAG, label + " errors [" + selection + "]: " + cut(errors.toString(), 1500));
+                }
+                if (data == null && errors == null) {
+                    Log.i(TAG, label + " empty response [" + selection + "]");
+                }
+                if (data != null && errors == null) {
+                    return; // clean success, no need to try the other guesses
+                }
             } catch (Exception e) {
-                Log.i(TAG, "marketplace request failed [" + selection + "]: " + e);
+                Log.i(TAG, label + " request failed [" + selection + "]: " + e);
             }
         }
-        logSchema(http, gameworldHost, "MarketplaceOffer", "fields");
     }
 
     private JSONObject runQuery(OkHttpClient http, String gameworldHost, String selection) throws Exception {
