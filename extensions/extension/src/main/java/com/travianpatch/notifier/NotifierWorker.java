@@ -74,6 +74,8 @@ public class NotifierWorker extends Worker {
     static final String KEY_STATUS = "check_status";
     /** Villages with nothing building or training, as of the last check; read by the Alerts screen. */
     static final String KEY_IDLE_VILLAGES = "idle_villages";
+    /** Villages the last poll saw (id, name, x, y); read by the Build order screen. */
+    static final String KEY_VILLAGES = "known_villages";
     /** "true"/"false" once read, absent until then; read by the Hub screen. */
     static final String KEY_GOLD_CLUB = "gold_club";
     private static final String KEY_GOLD_CLUB_LOGGED_AT = "gold_club_logged_at";
@@ -502,6 +504,7 @@ public class NotifierWorker extends Worker {
         }
         saveTrackedState(stillActive);
         saveIdleVillages(villages, stillActive.values());
+        saveVillageList(villages);
         int buildCount = 0;
         for (TrackedEvent ev : stillActive.values()) {
             if ("build".equals(ev.kind)) {
@@ -1137,6 +1140,11 @@ public class NotifierWorker extends Worker {
 
     private SharedPreferences statePrefs() {
         return getApplicationContext().getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE);
+    }
+
+    /** Stores the last poll's villages (id, name, x, y) so screens can key data per village by id. */
+    private void saveVillageList(JSONArray villages) {
+        statePrefs().edit().putString(KEY_VILLAGES, VillageList.toJson(VillageList.compute(villages))).apply();
     }
 
     // ------------------------------------------------------------------
