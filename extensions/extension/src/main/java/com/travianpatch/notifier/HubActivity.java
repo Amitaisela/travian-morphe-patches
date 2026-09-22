@@ -102,6 +102,12 @@ public class HubActivity extends Activity {
                 startActivity(new Intent(HubActivity.this, QueuesActivity.class));
             }
         }), UiKit.cardParams(this));
+        column.addView(UiKit.menuRow(this, "Build order", "Set what each village builds next", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(HubActivity.this, BuildOrderActivity.class));
+            }
+        }), UiKit.cardParams(this));
         column.addView(UiKit.menuRow(this, "Recent notifications", "What was sent lately", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
