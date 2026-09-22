@@ -59,10 +59,7 @@ public class BuildOrderActivity extends Activity {
         for (VillageList.Entry v : villages) {
             villageLabels.add(v.label());
         }
-        ArrayAdapter<String> villageAdapter = new ArrayAdapter<String>(
-                this, android.R.layout.simple_spinner_item, villageLabels);
-        villageAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        villagePicker.setAdapter(villageAdapter);
+        villagePicker.setAdapter(spinnerAdapter(villageLabels));
         villagePicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -93,14 +90,13 @@ public class BuildOrderActivity extends Activity {
                 buildingIds.add(id);
             }
         }
-        ArrayAdapter<String> buildingAdapter = new ArrayAdapter<String>(
-                this, android.R.layout.simple_spinner_item, buildingLabels);
-        buildingAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        buildingPicker.setAdapter(buildingAdapter);
+        buildingPicker.setAdapter(spinnerAdapter(buildingLabels));
         addCard.addView(buildingPicker);
 
         levelInput = new EditText(this);
         levelInput.setHint("Target level");
+        levelInput.setHintTextColor(UiKit.mutedColor(this));
+        levelInput.setTextColor(UiKit.textColor(this));
         levelInput.setInputType(InputType.TYPE_CLASS_NUMBER);
         addCard.addView(levelInput);
 
@@ -161,10 +157,14 @@ public class BuildOrderActivity extends Activity {
 
     private View orderRow(final int index) {
         LinearLayout row = UiKit.card(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setOrientation(LinearLayout.VERTICAL);
         TextView label = UiKit.body(this, (index + 1) + ". " + order.get(index).label());
-        row.addView(label, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(smallButton("↑", new View.OnClickListener() {
+        row.addView(label);
+
+        LinearLayout controls = new LinearLayout(this);
+        controls.setOrientation(LinearLayout.HORIZONTAL);
+        controls.setPadding(0, UiKit.dp(this, 8), 0, 0);
+        controls.addView(smallButton("↑", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (index > 0) {
@@ -174,7 +174,7 @@ public class BuildOrderActivity extends Activity {
                 }
             }
         }));
-        row.addView(smallButton("↓", new View.OnClickListener() {
+        controls.addView(smallButton("↓", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (index < order.size() - 1) {
@@ -184,7 +184,7 @@ public class BuildOrderActivity extends Activity {
                 }
             }
         }));
-        row.addView(smallButton("✕", new View.OnClickListener() {
+        controls.addView(smallButton("✕", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 order.remove(index);
@@ -192,6 +192,7 @@ public class BuildOrderActivity extends Activity {
                 draw();
             }
         }));
+        row.addView(controls);
         return row;
     }
 
@@ -200,5 +201,28 @@ public class BuildOrderActivity extends Activity {
         button.setText(label);
         button.setOnClickListener(onClick);
         return button;
+    }
+
+    /** A spinner adapter whose text uses the app's own colours instead of the system default, which reads
+     * too low-contrast against the dark page background. */
+    private ArrayAdapter<String> spinnerAdapter(List<String> items) {
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
+            @Override
+            public View getView(int position, View convertView, android.view.ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convertView, parent);
+                view.setTextColor(UiKit.textColor(BuildOrderActivity.this));
+                return view;
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, android.view.ViewGroup parent) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+                view.setTextColor(UiKit.textColor(BuildOrderActivity.this));
+                view.setBackgroundColor(UiKit.surface(BuildOrderActivity.this));
+                return view;
+            }
+        };
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        return adapter;
     }
 }
