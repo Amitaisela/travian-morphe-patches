@@ -1,3 +1,15 @@
+## [1.14.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.13.2...v1.14.0) (2026-09-22)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** fix Build order screen layout and text contrast ([4b7f5c6](https://github.com/Amitaisela/travian-morphe-patches/commit/4b7f5c634204d7dbc71221c3225a04c39d66bbf1))
+
+### ✨ New Features
+
+* **Travian: Legends:** add BuildOrderStore, the saved per-village build order ([cf8d22c](https://github.com/Amitaisela/travian-morphe-patches/commit/cf8d22c3a785a14ca686870a0b20d70cbedfb7eb))
+* **Travian: Legends:** add the Build order screen ([1275b1d](https://github.com/Amitaisela/travian-morphe-patches/commit/1275b1dc6e4b036f3c7ac81c80e721a13ace3fd2))
+* **Travian: Legends:** store the village list from each poll, keyed by id ([f6ef285](https://github.com/Amitaisela/travian-morphe-patches/commit/f6ef28526ab2fcc17000149bd437c2303eb1c1d8))
+
 ## [1.13.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.13.1...v1.13.2) (2026-09-22)
 
 ### 🐛 Bug Fixes
