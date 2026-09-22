@@ -1,3 +1,9 @@
+## [1.13.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.13.0...v1.13.1) (2026-09-22)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** log GraphQL errors alongside data in the diagnostic probes ([146c8ad](https://github.com/Amitaisela/travian-morphe-patches/commit/146c8adbe54f764f5f65f3c905383de6aa9536c8))
+
 ## [1.13.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.12.1...v1.13.0) (2026-09-22)
 
 ### ✨ New Features

@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-22T17:03:15",
-  "description": "## [1.13.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.12.1...v1.13.0) (2026-09-22)\n\n### ✨ New Features\n\n* **Travian: Legends:** show idle villages and Gold Club status in Travian Tools ([51d56f4](https://github.com/Amitaisela/travian-morphe-patches/commit/51d56f4d44c801a759d7502968d1a13a90b0862a))",
-  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.13.0/patches-1.13.0.mpp",
+  "created_at": "2026-09-22T17:27:52",
+  "description": "## [1.13.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.13.0...v1.13.1) (2026-09-22)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** log GraphQL errors alongside data in the diagnostic probes ([146c8ad](https://github.com/Amitaisela/travian-morphe-patches/commit/146c8adbe54f764f5f65f3c905383de6aa9536c8))",
+  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.13.1/patches-1.13.1.mpp",
   "signature_download_url": "",
-  "version": "1.13.0"
+  "version": "1.13.1"
 }
