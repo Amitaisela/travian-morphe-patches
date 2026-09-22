@@ -632,8 +632,9 @@ public class NotifierWorker extends Worker {
         }
         prefs.edit().putLong(KEY_BUILD_COST_LOGGED_AT, now).apply();
         String[] variants = {
-                "villages { id name buildEvents { id buildingTypeId aspiredLevel buildingCost upgradeCostObject } }",
-                "villages { id name buildingSlots { id buildingTypeId level buildingCost upgradeCostObject } }",
+                "villages { id name buildingSlots { id buildingTypeId level buildCostObject upgradeCostObject } }",
+                "villages { id name buildEvents { id buildingTypeId aspiredLevel buildCostObject upgradeCostObject } }",
+                "villages { id name buildEvents { id buildingTypeId aspiredLevel } }",
         };
         runDiagnosticVariants("building costs", http, gameworldHost, variants);
         logSchema(http, gameworldHost, "BuildEvent", "fields");
