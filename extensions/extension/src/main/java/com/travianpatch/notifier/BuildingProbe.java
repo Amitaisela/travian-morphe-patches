@@ -5,14 +5,15 @@ import java.util.List;
 
 /**
  * The exact read-only queries used, once per install, to learn the real shape of the game's building
- * data. Every name below comes from the game's own client (field names found in its compiled metadata);
- * none of them is confirmed against a live response yet, which is the whole point of running this.
+ * data. Round 1 (live, 2026-09-24) showed: the rules table is bootstrapData.buildings (not
+ * buildingsRaw), ownVillage(id:) wants an Int id, and a village's buildings list works. Round 2 asks
+ * for the rest of what the game's own client lists under those parents.
  *
- * Two facts about this server shape the list (both seen in earlier phone logs): GraphQL introspection
- * is refused, and a nested field the schema doesn't have is silently dropped instead of raising an
- * error. So an object-typed field is also asked for "bare" (no sub-fields) to try to make the server
- * name the type in an error, and guessed sub-field names are tried in separate queries so one wrong
- * guess can't hide a right one. Pure logic (no Android APIs) so it can be checked off-device.
+ * Facts about this server that shape the list (all seen live): GraphQL introspection is refused, and
+ * a nested field the schema doesn't have is silently omitted instead of raising an error, while a real
+ * object asked for with no sub-fields comes back as an empty object. So many candidate names can share
+ * one query safely, an absent key means "wrong name", and an empty object or list means "real object,
+ * ask for its sub-fields". Pure logic (no Android APIs) so it can be checked off-device.
  */
 final class BuildingProbe {
 
@@ -31,41 +32,43 @@ final class BuildingProbe {
             return out;
         }
 
-        // The game's own rules table (static per world/version).
-        out.add(bootstrap("timestamp releaseVersion serverTitle serverTimezoneOffset"));
-        out.add(bootstrap("buildingsRaw { maxLevel }"));
-        out.add(bootstrap("buildings { maxLevel }"));
-        out.add(bootstrap("buildingsRaw { id buildingTypeId typeId maxLevel maxPerVillage category sortIndex "
-                + "baseBuildingTime buildingTimeFactor additionalBuildingTime validTribes validVillageTypes }"));
-        out.add(bootstrap("buildingsRaw { levels }"));
-        out.add(bootstrap("buildingsRaw { levels { level producedCulture producedPopulation effectValue cropUsage } }"));
-        out.add(bootstrap("buildingsRaw { levels { buildCostObject } }"));
-        out.add(bootstrap("buildingsRaw { levels { buildingCost } }"));
-        out.add(bootstrap("buildingsRaw { levels { buildCostObject { lumber clay iron crop } } }"));
-        out.add(bootstrap("buildingsRaw { levels { buildCostObject { wood clay iron crop } } }"));
-        out.add(bootstrap("buildingsRaw { levels { buildCostObject { amounts } } }"));
-        out.add(bootstrap("buildingsRaw { requiredBuildings }"));
-        out.add(bootstrap("buildingsRaw { requiredBuildings { buildingTypeId level } }"));
-        out.add(bootstrap("buildingsRaw { requiredBuildings { absoluteBuildingTypeId level } }"));
-        out.add(bootstrap("buildingsRaw { restrictions }"));
-        out.add(bootstrap("buildingsRaw { extension }"));
-        out.add(bootstrap("serverConfiguration"));
-        out.add(bootstrap("serverConfiguration { serverSpeed speed }"));
-        out.add(bootstrap("serverSpeed speed"));
-        out.add(bootstrap("gameworld"));
+        // The game's own rules table: one entry per building, static per world/version.
+        out.add(rules("id typeId buildingTypeId buildingType type tid name title key sortIndex category maxLevel "
+                + "maxPerVillage baseBuildingTime buildingTimeFactor additionalBuildingTime"));
+        out.add(rules("validTribes validVillageTypes requiredBuildings levels restrictions extension categoryEnum"));
+        out.add(rules("validTribes { id tribeId }"));
+        out.add(rules("validVillageTypes { id type }"));
+        out.add(rules("requiredBuildings { id typeId buildingTypeId absoluteBuildingTypeId level requiredLevel "
+                + "minLevel building buildingId }"));
+        out.add(rules("levels { level cropUsage producedCulture producedPopulation effectValue time buildTime "
+                + "upgradeTime duration }"));
+        out.add(rules("levels { buildCostObject buildingCost }"));
+        out.add(rules("levels { buildCostObject { lumber clay iron crop wood stone resources amounts id type "
+                + "amount value } }"));
+        out.add(rules("levels { buildingCost { lumber clay iron crop wood stone resources amounts id type "
+                + "amount value } }"));
+        out.add(rules("restrictions { id type value level villageType buildingTypeId tribeId description }"));
+        out.add(rules("extension { maxLevel levels { buildingCost producedCulture producedPopulation effectValue } }"));
+        out.add(bootstrap("serverConfiguration { speed serverSpeed troopSpeed buildingSpeed constructionSpeed "
+                + "gameSpeed name id startTime endTime tribes mapSize }"));
+        out.add(bootstrap("gameworld { id name speed serverSpeed startTime endTime }"));
 
-        // This village's own buildings and queue.
-        out.add(village(villageId, "id name"));
-        out.add("query { ownVillage(id: \"" + villageId + "\") { id name } }");
-        out.add(village(villageId, "mainBuilding"));
-        out.add(village(villageId, "villageLayoutType"));
-        out.add(village(villageId, "buildings { slotId buildingTypeId level }"));
-        out.add(village(villageId, "buildings { id slotId buildingTypeId level levelUpdateTimestamp rearrangedSlotId }"));
-        out.add(village(villageId, "buildings { upgradeCostObject }"));
-        out.add(village(villageId, "buildings { buildCostObject }"));
-        out.add(village(villageId, "buildEvents { id buildingTypeId slotId aspiredLevel timestamp isActive }"));
-        out.add("query { ownPlayer { villages { id buildings { slotId buildingTypeId level } } } }");
+        // This village's own buildings, queue and the player's tribe.
+        out.add(village(villageId, "buildings { id slotId buildingTypeId level levelUpdateTimestamp aspiredLevel "
+                + "upgradeTime upgradeCost cost costs nextLevel maxLevel canUpgrade isMaxLevel finishedAt "
+                + "timestamp underConstruction upgradeError }"));
+        out.add(village(villageId, "mainBuildingLevel timeReduction buildingTimeReduction masterBuilder "
+                + "buildingUpgrade upgradeQueue constructionQueue villageType villageLayout layout type "
+                + "isCapital capital population culturePoints"));
+        out.add(village(villageId, "buildEvents { id buildingTypeId slotId aspiredLevel timestamp isActive "
+                + "startTime startedAt duration cost buildCostObject upgradeCostObject type }"));
+        out.add("query { ownPlayer { tribeId tribe race id name } }");
+        out.add("query { ownPlayer { villages { id isCapital capital villageType type mainVillage } } }");
         return out;
+    }
+
+    private static String rules(String selection) {
+        return bootstrap("buildings { " + selection + " }");
     }
 
     private static String bootstrap(String selection) {

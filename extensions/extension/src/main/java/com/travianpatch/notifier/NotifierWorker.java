@@ -85,7 +85,7 @@ public class NotifierWorker extends Worker {
     private static final String KEY_BUILD_COST_LOGGED_AT = "build_cost_logged_at";
     private static final String KEY_MARKET_LOGGED_AT = "market_logged_at";
     /** Set the moment the one-off building-data probe starts, so it never runs a second time. */
-    private static final String KEY_BUILDING_PROBE_DONE = "building_probe_done_v1";
+    private static final String KEY_BUILDING_PROBE_DONE = "building_probe_done_v2";
     /** Longest slice of one response that is logged (a full rules table can be hundreds of KB). */
     private static final int PROBE_MAX_LOGGED_CHARS = 12000;
     /** Android cuts a log line near 4 KB, so long text is logged in pieces of this size. */
