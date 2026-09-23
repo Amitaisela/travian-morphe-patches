@@ -626,6 +626,13 @@ public class NotifierWorker extends Worker {
      * Diagnostic only, at most every 30 minutes: logs the game's own upgrade-cost fields for a building,
      * so a "smart queue" advisor can be built on the game's real costs instead of a guessed formula.
      * Nothing is shown on any screen yet.
+     *
+     * Unlike runDiagnosticVariants (used elsewhere in this file), this tries every variant every time
+     * and never stops early on a "clean" response: a real response was seen where the top-level query
+     * succeeded with no GraphQL errors at all, yet the requested nested field (buildingSlots) was simply
+     * missing from the returned object. So "no errors" does not mean "the field I asked for came back" on
+     * this server for a nested selection - each variant below asks for exactly one field at a time so a
+     * silently-dropped nested selection can be pinned to the single field that caused it.
      */
     private void logBuildingCosts(OkHttpClient http, String gameworldHost) {
         SharedPreferences prefs = statePrefs();
@@ -635,12 +642,28 @@ public class NotifierWorker extends Worker {
         }
         prefs.edit().putLong(KEY_BUILD_COST_LOGGED_AT, now).apply();
         String[] variants = {
-                "villages { id name buildingSlots { id buildingTypeId level buildCostObject upgradeCostObject } }",
-                "villages { id name buildEvents { id buildingTypeId aspiredLevel buildCostObject upgradeCostObject } }",
-                "villages { id name buildEvents { id buildingTypeId aspiredLevel } }",
+                "villages { id name buildingSlots { id } }",
+                "villages { id name buildEvents { id buildingTypeId aspiredLevel buildCostObject } }",
+                "villages { id name buildEvents { id buildingTypeId aspiredLevel upgradeCostObject } }",
         };
-        runDiagnosticVariants("building costs", http, gameworldHost, variants);
-        logSchema(http, gameworldHost, "BuildEvent", "fields");
+        for (String selection : variants) {
+            try {
+                JSONObject resp = runQuery(http, gameworldHost, selection);
+                JSONObject data = resp.optJSONObject("data");
+                JSONArray errors = resp.optJSONArray("errors");
+                if (data != null) {
+                    Log.i(TAG, "building costs ok [" + selection + "]: " + cut(data.toString(), 2500));
+                }
+                if (errors != null) {
+                    Log.i(TAG, "building costs errors [" + selection + "]: " + cut(errors.toString(), 1500));
+                }
+                if (data == null && errors == null) {
+                    Log.i(TAG, "building costs empty response [" + selection + "]");
+                }
+            } catch (Exception e) {
+                Log.i(TAG, "building costs request failed [" + selection + "]: " + e);
+            }
+        }
     }
 
     /**
