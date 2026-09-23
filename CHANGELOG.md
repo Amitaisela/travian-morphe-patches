@@ -1,3 +1,9 @@
+## [1.16.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.16.1...v1.16.2) (2026-09-23)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** second read-only look at the game's building data ([86d9ba6](https://github.com/Amitaisela/travian-morphe-patches/commit/86d9ba6475dfc815b9168f534a699628e1a1eab2))
+
 ## [1.16.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.16.0...v1.16.1) (2026-09-23)
 
 ### 🐛 Bug Fixes

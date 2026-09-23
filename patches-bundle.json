@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-23T21:03:52",
-  "description": "## [1.16.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.16.0...v1.16.1) (2026-09-23)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** add the read-only building-data probe queries ([ea4fedc](https://github.com/Amitaisela/travian-morphe-patches/commit/ea4fedc63b57fbcf1159f570e31ae20854e7d7dd))\n* **Travian: Legends:** log the game's own building data once (read-only) ([393b58d](https://github.com/Amitaisela/travian-morphe-patches/commit/393b58d75128105dd6ba97a651bcecb48be01893))",
-  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.16.1/patches-1.16.1.mpp",
+  "created_at": "2026-09-23T21:31:21",
+  "description": "## [1.16.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.16.1...v1.16.2) (2026-09-23)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** second read-only look at the game's building data ([86d9ba6](https://github.com/Amitaisela/travian-morphe-patches/commit/86d9ba6475dfc815b9168f534a699628e1a1eab2))",
+  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.16.2/patches-1.16.2.mpp",
   "signature_download_url": "",
-  "version": "1.16.1"
+  "version": "1.16.2"
 }
