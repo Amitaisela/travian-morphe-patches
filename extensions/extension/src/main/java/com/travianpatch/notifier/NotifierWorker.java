@@ -84,6 +84,12 @@ public class NotifierWorker extends Worker {
     private static final String KEY_CP_LOGGED_AT = "cp_logged_at";
     private static final String KEY_BUILD_COST_LOGGED_AT = "build_cost_logged_at";
     private static final String KEY_MARKET_LOGGED_AT = "market_logged_at";
+    /** Set the moment the one-off building-data probe starts, so it never runs a second time. */
+    private static final String KEY_BUILDING_PROBE_DONE = "building_probe_done_v1";
+    /** Longest slice of one response that is logged (a full rules table can be hundreds of KB). */
+    private static final int PROBE_MAX_LOGGED_CHARS = 12000;
+    /** Android cuts a log line near 4 KB, so long text is logged in pieces of this size. */
+    private static final int PROBE_LOG_PIECE = 3000;
     private static final int PENDING_FLAGS = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
     private static final String KEY_RETRIES = "retries";
     /** Wait a few seconds past the finish time so the server has processed the completion. */
@@ -536,7 +542,56 @@ public class NotifierWorker extends Worker {
      * Storage warnings and hero changes. Each is its own request, so a problem with either can
      * never break the main check above.
      */
+    /**
+     * Like runQuery, but for queries that don't start at ownPlayer (bootstrapData, ownVillage(id:)).
+     * The query text is JSON-escaped by JSONObject, so quotes inside it are safe.
+     */
+    private JSONObject runRootQuery(OkHttpClient http, String gameworldHost, String query) throws Exception {
+        String body = new JSONObject().put("query", query).toString();
+        Request req = new Request.Builder()
+                .url(gameworldHost + "/api/v1/graphql")
+                .post(TravianApi.jsonBody(body))
+                .build();
+        return TravianApi.executeJson(http, req);
+    }
+
+    /**
+     * One-off, read-only diagnostic: asks the game for its own building data (its rules table and the
+     * first village's buildings) and logs every raw response, so the Build order screen can later be built
+     * on the game's real field names instead of guesses. Runs once per install, after a poll has seen a
+     * village. Nothing is shown on any screen and nothing is changed in the game.
+     */
+    private void runBuildingProbe(OkHttpClient http, String gameworldHost) {
+        SharedPreferences prefs = statePrefs();
+        List<VillageList.Entry> known = VillageList.fromJson(prefs.getString(KEY_VILLAGES, null));
+        if (!BuildingProbe.shouldRun(prefs.getBoolean(KEY_BUILDING_PROBE_DONE, false), known.size())) {
+            return;
+        }
+        prefs.edit().putBoolean(KEY_BUILDING_PROBE_DONE, true).apply();
+        List<String> queries = BuildingProbe.queries(known.get(0).id);
+        for (int n = 1; n <= queries.size(); n++) {
+            String query = queries.get(n - 1);
+            Log.i(TAG, "PROBE " + n + "/" + queries.size() + " query: " + query);
+            try {
+                String response = runRootQuery(http, gameworldHost, query).toString();
+                Log.i(TAG, "PROBE " + n + " response length: " + response.length());
+                List<String> pieces = LogChunks.split(cut(response, PROBE_MAX_LOGGED_CHARS), PROBE_LOG_PIECE);
+                for (int k = 0; k < pieces.size(); k++) {
+                    Log.i(TAG, "PROBE " + n + " part " + (k + 1) + "/" + pieces.size() + ": " + pieces.get(k));
+                }
+            } catch (Exception e) {
+                Log.i(TAG, "PROBE " + n + " failed: " + e);
+            }
+        }
+        Log.i(TAG, "PROBE finished");
+    }
+
     private void checkExtras(OkHttpClient http, String gameworldHost) {
+        try {
+            runBuildingProbe(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "building probe failed: " + e);
+        }
         try {
             checkStorage(http, gameworldHost);
         } catch (Exception e) {
