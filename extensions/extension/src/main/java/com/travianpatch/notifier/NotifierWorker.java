@@ -76,6 +76,8 @@ public class NotifierWorker extends Worker {
     static final String KEY_IDLE_VILLAGES = "idle_villages";
     /** Villages the last poll saw (id, name, x, y); read by the Build order screen. */
     static final String KEY_VILLAGES = "known_villages";
+    /** Real resource stock/production per village from the last poll; read by the Build order screen. */
+    static final String KEY_VILLAGE_RESOURCES = "village_resources";
     /** "true"/"false" once read, absent until then; read by the Hub screen. */
     static final String KEY_GOLD_CLUB = "gold_club";
     private static final String KEY_GOLD_CLUB_LOGGED_AT = "gold_club_logged_at";
@@ -736,6 +738,7 @@ public class NotifierWorker extends Worker {
             return;
         }
         JSONArray villages = data.getJSONObject("p").getJSONArray("villages");
+        saveVillageResources(villages);
         Set<String> alerted = new HashSet<String>(statePrefs().getStringSet(KEY_STORAGE_ALERTED, new HashSet<String>()));
         int warned = 0;
         for (int i = 0; i < villages.length(); i++) {
@@ -1168,6 +1171,12 @@ public class NotifierWorker extends Worker {
     /** Stores the last poll's villages (id, name, x, y) so screens can key data per village by id. */
     private void saveVillageList(JSONArray villages) {
         statePrefs().edit().putString(KEY_VILLAGES, VillageList.toJson(VillageList.compute(villages))).apply();
+    }
+
+    /** Stores the last poll's real per-village resource stock/production for screens that need the raw numbers. */
+    private void saveVillageResources(JSONArray villages) {
+        statePrefs().edit().putString(KEY_VILLAGE_RESOURCES,
+                VillageResources.toJson(VillageResources.compute(villages))).apply();
     }
 
     // ------------------------------------------------------------------
