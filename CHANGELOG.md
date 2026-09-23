@@ -1,3 +1,10 @@
+## [1.16.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.16.0...v1.16.1) (2026-09-23)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** add the read-only building-data probe queries ([ea4fedc](https://github.com/Amitaisela/travian-morphe-patches/commit/ea4fedc63b57fbcf1159f570e31ae20854e7d7dd))
+* **Travian: Legends:** log the game's own building data once (read-only) ([393b58d](https://github.com/Amitaisela/travian-morphe-patches/commit/393b58d75128105dd6ba97a651bcecb48be01893))
+
 ## [1.16.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.15.0...v1.16.0) (2026-09-23)
 
 ### 🐛 Bug Fixes
