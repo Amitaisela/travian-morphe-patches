@@ -15,7 +15,7 @@ final class BuildingCostTable {
 
     /** Resource-field production per level (index = level), the base table before the Legends bonus. */
     private static final int[] PRODUCTION = {
-            0, 2, 5, 9, 15, 22, 33, 50, 70, 100, 145, 200, 280, 375, 495, 635, 800, 1000, 1300, 1600, 2000, 2450, 3050
+            2, 5, 9, 15, 22, 33, 50, 70, 100, 145, 200, 280, 375, 495, 635, 800, 1000, 1300, 1600, 2000, 2450, 3050
     };
     /** Travian: Legends applies this multiplier on top of the base production table. */
     private static final double LEGENDS_PRODUCTION_MULTIPLIER = 1.4;
