@@ -40,7 +40,9 @@ final class BuildQueueStep {
             return new Outcome(null, new ArrayList<BuildOrderStore.Entry>(queue), notes);
         }
         for (BuildOrderStore.Entry e : queue) {
-            if (QueueEstimate.reachedLevel(village, e.buildingTypeId) >= e.targetLevel) {
+            int reached = e.slotId > 0 ? QueueEstimate.slotLevel(village, e.slotId)
+                    : QueueEstimate.reachedLevel(village, e.buildingTypeId);
+            if (reached >= e.targetLevel) {
                 notes.add(GameData.buildingName(e.buildingTypeId) + " " + e.targetLevel + " reached");
             } else {
                 left.add(e);
@@ -51,7 +53,8 @@ final class BuildQueueStep {
             return new Outcome(null, left, notes);
         }
         for (BuildOrderStore.Entry e : left) {
-            BuildChoices.Row row = rowFor(rules, tribeId, village, e.buildingTypeId);
+            BuildChoices.Row row = e.slotId > 0 ? rowForSlot(rules, tribeId, village, e.slotId, e.buildingTypeId)
+                    : rowFor(rules, tribeId, village, e.buildingTypeId);
             String name = GameData.buildingName(e.buildingTypeId);
             if (row == null) {
                 notes.add(name + ": not in the game's rules");
@@ -78,7 +81,8 @@ final class BuildQueueStep {
                 return new Outcome(null, left, notes);
             }
             if (!BuildQueueAutomation.affordable(have, cost, cfg.bufferPercent)) {
-                notes.add(name + " " + row.toLevel + ": waiting for resources");
+                notes.add(name + " " + row.toLevel + ": waiting, " + Costs.missing(have.lumber, have.clay, have.iron,
+                        have.crop, cost.lumber, cost.clay, cost.iron, cost.crop, cfg.bufferPercent));
                 return new Outcome(null, left, notes);
             }
             List<BuildOrderStore.Entry> one = new ArrayList<BuildOrderStore.Entry>();
@@ -95,6 +99,30 @@ final class BuildQueueStep {
             notes.add("queue finished");
         }
         return new Outcome(null, left, notes);
+    }
+
+    /** The row for one exact slot: upgrade the building there, or build this type on it if it is empty. */
+    static BuildChoices.Row rowForSlot(BuildingRules rules, int tribeId, PlayerBuildings.Village village, int slotId,
+                                       int typeId) {
+        BuildingRules.Rule rule = rules.find(typeId);
+        if (rule == null) {
+            return null;
+        }
+        for (PlayerBuildings.Slot s : village.slots) {
+            if (s.slotId != slotId) {
+                continue;
+            }
+            if (!s.isEmpty() && s.typeId != typeId) {
+                return null; // something else stands there now
+            }
+            if (!s.isEmpty()) {
+                int level = Math.max(s.level, village.queuedLevel(slotId));
+                return new BuildChoices.Row(slotId, typeId, level, level + 1, BuildOptions.canUpgrade(rule, village, s),
+                        rule.levelData(level + 1));
+            }
+        }
+        BuildChoices.Row fresh = rowFor(rules, tribeId, village, typeId);
+        return fresh == null ? null : new BuildChoices.Row(slotId, typeId, 0, 1, fresh.verdict, fresh.next);
     }
 
     /** The row that would move this building type up: its highest existing slot, or a new building. */

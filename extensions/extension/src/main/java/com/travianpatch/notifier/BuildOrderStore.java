@@ -25,14 +25,22 @@ final class BuildOrderStore {
     static final class Entry {
         final int buildingTypeId;
         final int targetLevel;
+        /** The exact slot to upgrade; 0 = "the highest building of this type" (or a new one). */
+        final int slotId;
 
         Entry(int buildingTypeId, int targetLevel) {
+            this(buildingTypeId, targetLevel, 0);
+        }
+
+        Entry(int buildingTypeId, int targetLevel, int slotId) {
             this.buildingTypeId = buildingTypeId;
             this.targetLevel = targetLevel;
+            this.slotId = slotId;
         }
 
         String label() {
-            return GameData.buildingName(buildingTypeId) + " to level " + targetLevel;
+            return GameData.buildingName(buildingTypeId) + (slotId > 0 ? " (slot " + slotId + ")" : "")
+                    + " to level " + targetLevel;
         }
     }
 
@@ -48,6 +56,9 @@ final class BuildOrderStore {
                 JSONObject o = new JSONObject();
                 o.put("buildingTypeId", e.buildingTypeId);
                 o.put("targetLevel", e.targetLevel);
+                if (e.slotId > 0) {
+                    o.put("slotId", e.slotId);
+                }
                 array.put(o);
             }
             return array.toString();
@@ -66,7 +77,7 @@ final class BuildOrderStore {
             JSONArray array = new JSONArray(json);
             for (int i = 0; i < array.length(); i++) {
                 JSONObject o = array.getJSONObject(i);
-                result.add(new Entry(o.getInt("buildingTypeId"), o.getInt("targetLevel")));
+                result.add(new Entry(o.getInt("buildingTypeId"), o.getInt("targetLevel"), o.optInt("slotId", 0)));
             }
         } catch (Exception e) {
             return new ArrayList<Entry>();
