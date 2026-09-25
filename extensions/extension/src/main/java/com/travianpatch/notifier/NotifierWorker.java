@@ -80,6 +80,8 @@ public class NotifierWorker extends Worker {
     static final String KEY_VILLAGE_RESOURCES = "village_resources";
     /** The player's tribe, villages, building slots and queue from the last check (ownPlayer JSON text); read by the Build order screen. */
     static final String KEY_PLAYER_BUILDINGS = "player_buildings_json";
+    /** When the soonest incoming attack lands (epoch ms, 0 = none), saved each check for the action guard. */
+    static final String KEY_NEXT_ATTACK_AT = "next_attack_at";
     private static final String KEY_RULES_CHECKED_AT = "building_rules_checked_at";
     /** "true"/"false" once read, absent until then; read by the Hub screen. */
     static final String KEY_GOLD_CLUB = "gold_club";
@@ -100,9 +102,9 @@ public class NotifierWorker extends Worker {
     private static final long POLL_INTERVAL_MS = TimeUnit.MINUTES.toMillis(5);
     /** Don't reuse a cached world token that expires within this margin. */
     private static final long TOKEN_MARGIN_MS = TimeUnit.MINUTES.toMillis(2);
-    private static final String KEY_WORLD_HOST = "world_host";
-    private static final String KEY_WORLD_TOKEN = "world_token";
-    private static final String KEY_WORLD_TOKEN_EXP = "world_token_exp";
+    static final String KEY_WORLD_HOST = "world_host";
+    static final String KEY_WORLD_TOKEN = "world_token";
+    static final String KEY_WORLD_TOKEN_EXP = "world_token_exp";
     private static final String KEY_ANNOUNCED_ATTACKS = "announced_attacks";
     private static final String KEY_REMINDED_ATTACKS = "reminded_attacks";
     private static final String KEY_TRACKED_ARRIVALS = "tracked_arrivals";
@@ -291,7 +293,11 @@ public class NotifierWorker extends Worker {
      * storage like the game's own copy, and never contains a password.
      */
     private String seedCachedWorldToken(SimpleCookieJar jar) {
-        SharedPreferences prefs = statePrefs();
+        return seedWorldToken(statePrefs(), jar);
+    }
+
+    /** Same as the worker's fast path, for screens: puts the cached world token in jar, returns its host or null. */
+    static String seedWorldToken(SharedPreferences prefs, SimpleCookieJar jar) {
         String host = prefs.getString(KEY_WORLD_HOST, null);
         String token = prefs.getString(KEY_WORLD_TOKEN, null);
         long expMs = prefs.getLong(KEY_WORLD_TOKEN_EXP, 0);
@@ -521,6 +527,8 @@ public class NotifierWorker extends Worker {
         statAttacks = withMovements ? attacks.size() : -1;
         statArrivals = withMovements ? arrivals.size() : -1;
         if (withMovements) {
+            statePrefs().edit().putLong(KEY_NEXT_ATTACK_AT,
+                    AttackAlerts.nextArrivalMs(attacks, System.currentTimeMillis())).apply();
             announceAttacks(attacks);
             if (movementsComplete) {
                 reportArrivals(arrivals);
