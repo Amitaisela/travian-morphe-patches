@@ -78,18 +78,15 @@ public class NotifierWorker extends Worker {
     static final String KEY_VILLAGES = "known_villages";
     /** Real resource stock/production per village from the last poll; read by the Build order screen. */
     static final String KEY_VILLAGE_RESOURCES = "village_resources";
+    /** The player's tribe, villages, building slots and queue from the last check (ownPlayer JSON text); read by the Build order screen. */
+    static final String KEY_PLAYER_BUILDINGS = "player_buildings_json";
+    private static final String KEY_RULES_CHECKED_AT = "building_rules_checked_at";
     /** "true"/"false" once read, absent until then; read by the Hub screen. */
     static final String KEY_GOLD_CLUB = "gold_club";
     private static final String KEY_GOLD_CLUB_LOGGED_AT = "gold_club_logged_at";
     private static final String KEY_CP_LOGGED_AT = "cp_logged_at";
     private static final String KEY_BUILD_COST_LOGGED_AT = "build_cost_logged_at";
     private static final String KEY_MARKET_LOGGED_AT = "market_logged_at";
-    /** Set the moment the one-off building-data probe starts, so it never runs a second time. */
-    private static final String KEY_BUILDING_PROBE_DONE = "building_probe_done_v2";
-    /** Longest slice of one response that is logged (a full rules table can be hundreds of KB). */
-    private static final int PROBE_MAX_LOGGED_CHARS = 12000;
-    /** Android cuts a log line near 4 KB, so long text is logged in pieces of this size. */
-    private static final int PROBE_LOG_PIECE = 3000;
     private static final int PENDING_FLAGS = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
     private static final String KEY_RETRIES = "retries";
     /** Wait a few seconds past the finish time so the server has processed the completion. */
@@ -555,42 +552,72 @@ public class NotifierWorker extends Worker {
         return TravianApi.executeJson(http, req);
     }
 
+    /** The object under data.<key> of a GraphQL response, or null if the response has none. */
+    private static JSONObject dataObject(JSONObject response, String key) {
+        JSONObject data = response.optJSONObject("data");
+        return data == null ? null : data.optJSONObject(key);
+    }
+
     /**
-     * One-off, read-only diagnostic: asks the game for its own building data (its rules table and the
-     * first village's buildings) and logs every raw response, so the Build order screen can later be built
-     * on the game's real field names instead of guesses. Runs once per install, after a poll has seen a
-     * village. Nothing is shown on any screen and nothing is changed in the game.
+     * Keeps the game's own building data current: the rules table (downloaded again only when the game's
+     * release version changes) and the player's buildings (every check). Failures leave the last good copy
+     * in place.
      */
-    private void runBuildingProbe(OkHttpClient http, String gameworldHost) {
-        SharedPreferences prefs = statePrefs();
-        List<VillageList.Entry> known = VillageList.fromJson(prefs.getString(KEY_VILLAGES, null));
-        if (!BuildingProbe.shouldRun(prefs.getBoolean(KEY_BUILDING_PROBE_DONE, false), known.size())) {
+    private void refreshBuildingData(OkHttpClient http, String gameworldHost) {
+        refreshBuildingRules(http, gameworldHost);
+        refreshPlayerBuildings(http, gameworldHost);
+    }
+
+    private void refreshBuildingRules(OkHttpClient http, String gameworldHost) {
+        SharedPreferences rulesPrefs = getApplicationContext().getSharedPreferences(BuildingRules.PREFS, Context.MODE_PRIVATE);
+        boolean haveRules = rulesPrefs.getString(BuildingRules.KEY_JSON, null) != null;
+        long now = System.currentTimeMillis();
+        if (haveRules && now - statePrefs().getLong(KEY_RULES_CHECKED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
             return;
         }
-        prefs.edit().putBoolean(KEY_BUILDING_PROBE_DONE, true).apply();
-        List<String> queries = BuildingProbe.queries(known.get(0).id);
-        for (int n = 1; n <= queries.size(); n++) {
-            String query = queries.get(n - 1);
-            Log.i(TAG, "PROBE " + n + "/" + queries.size() + " query: " + query);
-            try {
-                String response = runRootQuery(http, gameworldHost, query).toString();
-                Log.i(TAG, "PROBE " + n + " response length: " + response.length());
-                List<String> pieces = LogChunks.split(cut(response, PROBE_MAX_LOGGED_CHARS), PROBE_LOG_PIECE);
-                for (int k = 0; k < pieces.size(); k++) {
-                    Log.i(TAG, "PROBE " + n + " part " + (k + 1) + "/" + pieces.size() + ": " + pieces.get(k));
-                }
-            } catch (Exception e) {
-                Log.i(TAG, "PROBE " + n + " failed: " + e);
+        try {
+            JSONObject versionObject = dataObject(runRootQuery(http, gameworldHost, BuildingRules.VERSION_QUERY), "bootstrapData");
+            if (versionObject == null) {
+                Log.w(TAG, "building rules version not readable");
+                return;
             }
+            String version = versionObject.optString("releaseVersion", "");
+            if (haveRules && version.equals(rulesPrefs.getString(BuildingRules.KEY_VERSION, ""))) {
+                statePrefs().edit().putLong(KEY_RULES_CHECKED_AT, now).apply();
+                return;
+            }
+            JSONObject rules = dataObject(runRootQuery(http, gameworldHost, BuildingRules.QUERY), "bootstrapData");
+            if (rules == null || BuildingRules.parse(rules.toString()) == null) {
+                Log.w(TAG, "building rules not readable, keeping the old copy");
+                return;
+            }
+            rulesPrefs.edit().putString(BuildingRules.KEY_JSON, rules.toString())
+                    .putString(BuildingRules.KEY_VERSION, version).apply();
+            statePrefs().edit().putLong(KEY_RULES_CHECKED_AT, now).apply();
+            Log.i(TAG, "building rules saved: version " + version + ", " + rules.toString().length() + " chars");
+        } catch (Exception e) {
+            Log.w(TAG, "building rules refresh failed: " + e);
         }
-        Log.i(TAG, "PROBE finished");
+    }
+
+    private void refreshPlayerBuildings(OkHttpClient http, String gameworldHost) {
+        try {
+            JSONObject player = dataObject(runRootQuery(http, gameworldHost, PlayerBuildings.QUERY), "ownPlayer");
+            if (player == null || PlayerBuildings.parse(player.toString()) == null) {
+                Log.w(TAG, "player buildings not readable, keeping the old copy");
+                return;
+            }
+            statePrefs().edit().putString(KEY_PLAYER_BUILDINGS, player.toString()).apply();
+        } catch (Exception e) {
+            Log.w(TAG, "player buildings refresh failed: " + e);
+        }
     }
 
     private void checkExtras(OkHttpClient http, String gameworldHost) {
         try {
-            runBuildingProbe(http, gameworldHost);
+            refreshBuildingData(http, gameworldHost);
         } catch (Exception e) {
-            Log.w(TAG, "building probe failed: " + e);
+            Log.w(TAG, "building data refresh failed: " + e);
         }
         try {
             checkStorage(http, gameworldHost);

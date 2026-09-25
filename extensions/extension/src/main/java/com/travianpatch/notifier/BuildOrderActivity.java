@@ -12,32 +12,62 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * Lets the user set, per village, an ordered list of "upgrade this building to this level" entries.
- * This screen only edits the list; nothing here fires a build. A later automation step reads what is
- * saved here.
+ * Lets the user set, per village, an ordered list of "upgrade this building to this level" entries, and
+ * shows what the game itself says: which buildings the village has, what can be built or upgraded right
+ * now, and the exact cost and effect of the next level. This screen only edits the list; nothing here
+ * fires a build. Everything shown comes from the game's own data; where the game gives nothing the screen
+ * says "not known".
  */
 public class BuildOrderActivity extends Activity {
 
+    /** One thing the picker offers: a building type to upgrade or to build new. */
+    private static final class Option {
+        final int typeId;
+        final boolean isNew;
+        final BuildOptions.Verdict verdict;
+
+        Option(int typeId, boolean isNew, BuildOptions.Verdict verdict) {
+            this.typeId = typeId;
+            this.isNew = isNew;
+            this.verdict = verdict;
+        }
+
+        String label() {
+            String base = GameData.buildingName(typeId) + (isNew ? " (new)" : " (upgrade)");
+            return verdict.answer == BuildOptions.Answer.UNKNOWN ? base + " - rule unclear" : base;
+        }
+    }
+
     private List<VillageList.Entry> villages = new ArrayList<VillageList.Entry>();
     private List<BuildOrderStore.Entry> order = new ArrayList<BuildOrderStore.Entry>();
+    private BuildingRules rules;
+    private PlayerBuildings player;
+    private List<VillageResources.Entry> resources = new ArrayList<VillageResources.Entry>();
+    private List<Option> options = new ArrayList<Option>();
     private String selectedVillageId;
+    private LinearLayout builtColumn;
     private LinearLayout listColumn;
+    private TextView summaryView;
+    private TextView optionInfoView;
     private Spinner buildingPicker;
     private EditText levelInput;
-    private TextView summaryView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        villages = VillageList.fromJson(
-                getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE)
-                        .getString(NotifierWorker.KEY_VILLAGES, null));
+        SharedPreferences state = getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE);
+        villages = VillageList.fromJson(state.getString(NotifierWorker.KEY_VILLAGES, null));
+        resources = VillageResources.fromJson(state.getString(NotifierWorker.KEY_VILLAGE_RESOURCES, null));
+        player = PlayerBuildings.parse(state.getString(NotifierWorker.KEY_PLAYER_BUILDINGS, null));
+        rules = BuildingRules.parse(getSharedPreferences(BuildingRules.PREFS, Context.MODE_PRIVATE)
+                .getString(BuildingRules.KEY_JSON, null));
         setContentView(buildContent());
     }
 
@@ -45,11 +75,12 @@ public class BuildOrderActivity extends Activity {
         LinearLayout column = UiKit.column(this);
         column.addView(UiKit.title(this, "Build order"));
         column.addView(UiKit.muted(this, "Set what each village builds next. Nothing here builds anything by "
-                + "itself yet."));
+                + "itself yet. Everything shown is read from the game."));
 
-        if (villages.isEmpty()) {
+        if (villages.isEmpty() || rules == null || player == null) {
             LinearLayout empty = UiKit.card(this);
-            empty.addView(UiKit.body(this, "No villages seen yet. Open Travian Tools again after the next check."));
+            empty.addView(UiKit.body(this, "The game's building data hasn't been read yet. Open Travian Tools "
+                    + "again after the next check."));
             column.addView(empty, UiKit.cardParams(this));
             return UiKit.page(this, column);
         }
@@ -73,6 +104,12 @@ public class BuildOrderActivity extends Activity {
         });
         column.addView(villagePicker, UiKit.cardParams(this));
 
+        column.addView(UiKit.section(this, "Already built"));
+        builtColumn = new LinearLayout(this);
+        builtColumn.setOrientation(LinearLayout.VERTICAL);
+        column.addView(builtColumn, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         column.addView(UiKit.section(this, "Order"));
         LinearLayout summaryCard = UiKit.card(this);
         summaryView = UiKit.body(this, "");
@@ -86,17 +123,20 @@ public class BuildOrderActivity extends Activity {
         column.addView(UiKit.section(this, "Add"));
         LinearLayout addCard = UiKit.card(this);
         buildingPicker = new Spinner(this);
-        List<String> buildingLabels = new ArrayList<String>();
-        final List<Integer> buildingIds = new ArrayList<Integer>();
-        for (int id = 1; id <= 43; id++) {
-            String name = GameData.buildingName(id);
-            if (!name.startsWith("Building #")) {
-                buildingLabels.add(name);
-                buildingIds.add(id);
+        buildingPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                showOptionInfo(position);
             }
-        }
-        buildingPicker.setAdapter(spinnerAdapter(buildingLabels));
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                optionInfoView.setText("");
+            }
+        });
         addCard.addView(buildingPicker);
+        optionInfoView = UiKit.muted(this, "");
+        addCard.addView(optionInfoView);
 
         levelInput = new EditText(this);
         levelInput.setHint("Target level");
@@ -108,31 +148,7 @@ public class BuildOrderActivity extends Activity {
         addCard.addView(UiKit.primaryButton(this, "Add to order", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                int position = buildingPicker.getSelectedItemPosition();
-                if (position < 0 || position >= buildingIds.size()) {
-                    return;
-                }
-                String levelText = levelInput.getText().toString().trim();
-                if (levelText.length() == 0) {
-                    return;
-                }
-                int level;
-                try {
-                    level = Integer.parseInt(levelText);
-                } catch (NumberFormatException e) {
-                    return;
-                }
-                int buildingTypeId = buildingIds.get(position);
-                if (BuildingCostTable.has(buildingTypeId) && level > BuildingCostTable.maxLevel(buildingTypeId)) {
-                    android.widget.Toast.makeText(BuildOrderActivity.this,
-                            "That building only goes up to level " + BuildingCostTable.maxLevel(buildingTypeId),
-                            android.widget.Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                order.add(new BuildOrderStore.Entry(buildingTypeId, level));
-                persist();
-                levelInput.setText("");
-                draw();
+                addSelected();
             }
         }));
         column.addView(addCard, UiKit.cardParams(this));
@@ -141,11 +157,143 @@ public class BuildOrderActivity extends Activity {
         return UiKit.page(this, column);
     }
 
+    private void addSelected() {
+        int position = buildingPicker.getSelectedItemPosition();
+        if (position < 0 || position >= options.size()) {
+            return;
+        }
+        String levelText = levelInput.getText().toString().trim();
+        if (levelText.length() == 0) {
+            return;
+        }
+        int level;
+        try {
+            level = Integer.parseInt(levelText);
+        } catch (NumberFormatException e) {
+            return;
+        }
+        Option option = options.get(position);
+        BuildingRules.Rule rule = rules.find(option.typeId);
+        if (rule != null && (level < 1 || level > rule.maxLevel)) {
+            Toast.makeText(this, "The game allows levels 1 to " + rule.maxLevel + " for this building",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+        order.add(new BuildOrderStore.Entry(option.typeId, level));
+        persist();
+        levelInput.setText("");
+        draw();
+    }
+
     private void selectVillage(String villageId) {
         selectedVillageId = villageId;
         SharedPreferences prefs = getSharedPreferences(BuildOrderStore.PREFS, Context.MODE_PRIVATE);
         order = BuildOrderStore.fromJson(prefs.getString(BuildOrderStore.key(villageId), null));
+        rebuildOptions();
         draw();
+    }
+
+    /** Works out what the picker may offer for the selected village, straight from the game's rules. */
+    private void rebuildOptions() {
+        options = new ArrayList<Option>();
+        PlayerBuildings.Village village = player.findVillage(selectedVillageId);
+        if (village != null) {
+            List<Integer> seen = new ArrayList<Integer>();
+            for (PlayerBuildings.Slot slot : village.slots) {
+                if (slot.isEmpty() || seen.contains(slot.typeId)) {
+                    continue;
+                }
+                BuildingRules.Rule rule = rules.find(slot.typeId);
+                if (rule == null) {
+                    continue;
+                }
+                seen.add(slot.typeId);
+                BuildOptions.Verdict best = null;
+                for (PlayerBuildings.Slot other : village.slots) {
+                    if (other.typeId == slot.typeId) {
+                        BuildOptions.Verdict verdict = BuildOptions.canUpgrade(rule, village, other);
+                        if (best == null || verdict.answer == BuildOptions.Answer.YES) {
+                            best = verdict;
+                        }
+                    }
+                }
+                if (best != null && best.answer != BuildOptions.Answer.NO) {
+                    options.add(new Option(slot.typeId, false, best));
+                }
+            }
+            for (BuildingRules.Rule rule : rules.rules) {
+                if (rule.type >= 1 && rule.type <= 4) {
+                    continue; // resource fields already exist; they can only be upgraded
+                }
+                BuildOptions.Verdict verdict = BuildOptions.canBuildNew(rule, player.tribeId, village);
+                if (verdict.answer != BuildOptions.Answer.NO) {
+                    options.add(new Option(rule.type, true, verdict));
+                }
+            }
+        }
+        List<String> labels = new ArrayList<String>();
+        for (Option o : options) {
+            labels.add(o.label());
+        }
+        buildingPicker.setAdapter(spinnerAdapter(labels));
+        drawBuilt(village);
+        if (options.isEmpty()) {
+            optionInfoView.setText("Nothing can be built or upgraded here right now, going by the game's rules.");
+        }
+    }
+
+    private void showOptionInfo(int position) {
+        if (position < 0 || position >= options.size()) {
+            return;
+        }
+        Option option = options.get(position);
+        PlayerBuildings.Village village = player.findVillage(selectedVillageId);
+        int currentLevel = 0;
+        if (village != null && !option.isNew) {
+            currentLevel = village.levelOf(option.typeId);
+        }
+        optionInfoView.setText(nextLevelText(option.typeId, currentLevel + 1)
+                + (option.verdict.answer == BuildOptions.Answer.UNKNOWN ? " " + option.verdict.reason + "." : ""));
+    }
+
+    /** The game's cost and effect for one level of one building, or "not known" where the table has none. */
+    private String nextLevelText(int typeId, int level) {
+        BuildingRules.Rule rule = rules.find(typeId);
+        BuildingRules.Level data = rule == null ? null : rule.levelData(level);
+        if (data == null) {
+            return "Level " + level + ": the game's table has no cost for it. Build time: not known yet.";
+        }
+        return "Level " + level + " costs " + data.lumber + " wood, " + data.clay + " clay, " + data.iron
+                + " iron, " + data.crop + " crop. Effect value " + data.effectValue + ", population +"
+                + data.producedPopulation + ". Build time: not known yet.";
+    }
+
+    private void drawBuilt(PlayerBuildings.Village village) {
+        builtColumn.removeAllViews();
+        if (village == null) {
+            LinearLayout empty = UiKit.card(this);
+            empty.addView(UiKit.body(this, "This village's buildings haven't been read yet."));
+            builtColumn.addView(empty, UiKit.cardParams(this));
+            return;
+        }
+        LinearLayout card = UiKit.card(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        int shown = 0;
+        for (PlayerBuildings.Slot slot : village.slots) {
+            if (slot.isEmpty()) {
+                continue;
+            }
+            int queued = village.queuedLevel(slot.slotId);
+            String line = GameData.buildingName(slot.typeId) + " (slot " + slot.slotId + ") level " + slot.level
+                    + (queued > slot.level ? ", upgrading to " + queued : "") + ". "
+                    + nextLevelText(slot.typeId, Math.max(slot.level, queued) + 1);
+            card.addView(UiKit.body(this, line));
+            shown++;
+        }
+        if (shown == 0) {
+            card.addView(UiKit.body(this, "No buildings found."));
+        }
+        builtColumn.addView(card, UiKit.cardParams(this));
     }
 
     private void persist() {
@@ -155,27 +303,14 @@ public class BuildOrderActivity extends Activity {
     }
 
     private void updateSummary() {
-        AutomationSettings.Config settings = AutomationSettings.fromJson(
-                getSharedPreferences(AutomationSettings.PREFS, Context.MODE_PRIVATE)
-                        .getString(AutomationSettings.KEY, null));
-        List<VillageResources.Entry> allResources = VillageResources.fromJson(
-                getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE)
-                        .getString(NotifierWorker.KEY_VILLAGE_RESOURCES, null));
-        VillageResources.Entry res = VillageResources.find(allResources, selectedVillageId);
-        BuildQueueAutomation.Resources stock = res == null ? new BuildQueueAutomation.Resources(0, 0, 0, 0)
-                : new BuildQueueAutomation.Resources(res.lumberStock, res.clayStock, res.ironStock, res.cropStock);
-        BuildQueueAutomation.Resources perHour = res == null ? new BuildQueueAutomation.Resources(0, 0, 0, 0)
-                : new BuildQueueAutomation.Resources(res.lumberPerHour, res.clayPerHour, res.ironPerHour, res.cropPerHour);
-        long now = System.currentTimeMillis();
-        long midnight = now - (now % 86_400_000L);
-        QueueEstimate.Result result = QueueEstimate.estimate(order, stock, perHour, settings, now, midnight);
-        String time = result.estimatedMs <= 0 ? "no time to estimate yet"
-                : "about " + (result.estimatedMs / 3_600_000L) + " h if it ran unattended starting now";
+        QueueEstimate.Result result = QueueEstimate.totalCost(rules, order);
         String cost = result.totalCost.lumber + " wood, " + result.totalCost.clay + " clay, "
                 + result.totalCost.iron + " iron, " + result.totalCost.crop + " crop";
-        String note = result.allKnown ? "" : " (some items aren't counted yet - no cost data for them)";
-        String staleness = res == null ? " Current stock isn't known yet (no check has completed for this village)." : "";
-        summaryView.setText("Total: " + cost + ". Approximate time: " + time + note + "." + staleness);
+        String note = result.unknownCount == 0 ? ""
+                : " " + result.unknownCount + " item(s) have no cost in the game's table and are not counted.";
+        VillageResources.Entry stock = VillageResources.find(resources, selectedVillageId);
+        String stockNote = stock == null ? " Current stock isn't known yet." : "";
+        summaryView.setText("Total: " + cost + ". Time: not known yet." + note + stockNote);
     }
 
     private void draw() {
