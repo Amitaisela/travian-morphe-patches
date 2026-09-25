@@ -663,6 +663,74 @@ public class NotifierWorker extends Worker {
         }
     }
 
+    /**
+     * Runs each village's saved build queue: only when Automatic actions is on (Actions screen) and that
+     * village's own switch is on. Decides with BuildQueueStep (game data only), sends through ActionSender
+     * (safety check, attack pause, practice mode, log), and saves the queue's status line for the screen.
+     */
+    private void checkBuildQueues(OkHttpClient http, String gameworldHost) {
+        Context ctx = getApplicationContext();
+        if (!ActionSender.settings(ctx).masterOn) {
+            return;
+        }
+        SharedPreferences state = statePrefs();
+        PlayerBuildings player = PlayerBuildings.parse(state.getString(KEY_PLAYER_BUILDINGS, null));
+        BuildingRules rules = BuildingRules.parse(ctx.getSharedPreferences(BuildingRules.PREFS, Context.MODE_PRIVATE)
+                .getString(BuildingRules.KEY_JSON, null));
+        if (player == null || rules == null) {
+            return;
+        }
+        SharedPreferences orders = ctx.getSharedPreferences(BuildOrderStore.PREFS, Context.MODE_PRIVATE);
+        AutomationSettings.Config cfg = AutomationSettings.fromJson(
+                ctx.getSharedPreferences(AutomationSettings.PREFS, Context.MODE_PRIVATE)
+                        .getString(AutomationSettings.KEY, null));
+        List<VillageResources.Entry> stocks = VillageResources.fromJson(state.getString(KEY_VILLAGE_RESOURCES, null));
+        long now = System.currentTimeMillis();
+        java.util.Calendar midnight = java.util.Calendar.getInstance();
+        midnight.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        midnight.set(java.util.Calendar.MINUTE, 0);
+        midnight.set(java.util.Calendar.SECOND, 0);
+        midnight.set(java.util.Calendar.MILLISECOND, 0);
+        boolean quiet = QuietHours.isQuiet(cfg.quietHours, now, midnight.getTimeInMillis());
+        for (PlayerBuildings.Village village : player.villages) {
+            if (!orders.getBoolean(BuildOrderActivity.autoKey(village.id), false)) {
+                continue;
+            }
+            String idleKey = "idle_since_" + village.id;
+            long idleSince = orders.getLong(idleKey, 0);
+            if (!village.pending.isEmpty()) {
+                orders.edit().remove(idleKey).apply();
+            } else if (idleSince == 0) {
+                idleSince = now;
+                orders.edit().putLong(idleKey, now).apply();
+            }
+            List<BuildOrderStore.Entry> queue = BuildOrderStore.fromJson(
+                    orders.getString(BuildOrderStore.key(village.id), null));
+            BuildQueueStep.Outcome out = BuildQueueStep.next(rules, player.tribeId, village,
+                    VillageResources.find(stocks, village.id), queue, cfg, quiet, now, idleSince);
+            String notes = android.text.TextUtils.join("; ", out.notes);
+            orders.edit().putString(BuildOrderStore.key(village.id), BuildOrderStore.toJson(out.queue))
+                    .putString(BuildOrderActivity.notesKey(village.id),
+                            java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(new java.util.Date(now))
+                                    + ": " + (notes.isEmpty() ? "nothing to do" : notes))
+                    .apply();
+            if (out.fire == null) {
+                continue;
+            }
+            try {
+                String label = GameData.buildingName(out.fire.typeId) + " to " + out.fire.toLevel;
+                ActionClient.Result r = ActionSender.send(ctx, http, gameworldHost,
+                        GameActions.build(village.id, out.fire.slotId, out.fire.typeId, label), true);
+                Log.i(TAG, "build queue " + village.id + ": " + label + " -> " + r.outcome);
+                if (r.sessionExpired) {
+                    clearCachedWorldToken();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "build queue send failed: " + e);
+            }
+        }
+    }
+
     private void checkExtras(OkHttpClient http, String gameworldHost) {
         try {
             runDataProbe(http, gameworldHost);
@@ -673,6 +741,11 @@ public class NotifierWorker extends Worker {
             refreshBuildingData(http, gameworldHost);
         } catch (Exception e) {
             Log.w(TAG, "building data refresh failed: " + e);
+        }
+        try {
+            checkBuildQueues(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "build queue check failed: " + e);
         }
         try {
             checkStorage(http, gameworldHost);

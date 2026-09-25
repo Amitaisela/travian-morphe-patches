@@ -58,6 +58,18 @@ public class BuildOrderActivity extends Activity {
     private TextView optionInfoView;
     private Spinner buildingPicker;
     private EditText levelInput;
+    private LinearLayout choicesColumn;
+    private android.widget.Switch autoSwitch;
+    private TextView queueNotesView;
+
+    /** BuildOrderStore prefs keys: per-village "run the queue automatically" and the worker's last status notes. */
+    static String autoKey(String villageId) {
+        return "auto_" + villageId;
+    }
+
+    static String notesKey(String villageId) {
+        return "notes_" + villageId;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,8 +86,9 @@ public class BuildOrderActivity extends Activity {
     private View buildContent() {
         LinearLayout column = UiKit.column(this);
         column.addView(UiKit.title(this, "Build order"));
-        column.addView(UiKit.muted(this, "Set what each village builds next. Nothing here builds anything by "
-                + "itself yet. Everything shown is read from the game."));
+        column.addView(UiKit.muted(this, "Build now, or queue what each village builds next. A queue only runs "
+                + "by itself when its switch and Automatic actions (Actions screen) are on. Everything shown is "
+                + "read from the game; gold is never used."));
 
         if (villages.isEmpty() || rules == null || player == null) {
             LinearLayout empty = UiKit.card(this);
@@ -110,7 +123,29 @@ public class BuildOrderActivity extends Activity {
         column.addView(builtColumn, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
+        column.addView(UiKit.section(this, "Build or queue"));
+        choicesColumn = new LinearLayout(this);
+        choicesColumn.setOrientation(LinearLayout.VERTICAL);
+        column.addView(choicesColumn, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         column.addView(UiKit.section(this, "Order"));
+        LinearLayout autoCard = UiKit.card(this);
+        autoSwitch = UiKit.accentSwitch(this, "Run this queue automatically", false);
+        autoSwitch.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean checked) {
+                if (selectedVillageId != null) {
+                    getSharedPreferences(BuildOrderStore.PREFS, Context.MODE_PRIVATE).edit()
+                            .putBoolean(autoKey(selectedVillageId), checked).apply();
+                }
+            }
+        });
+        autoCard.addView(autoSwitch, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        queueNotesView = UiKit.muted(this, "");
+        autoCard.addView(queueNotesView);
+        column.addView(autoCard, UiKit.cardParams(this));
         LinearLayout summaryCard = UiKit.card(this);
         summaryView = UiKit.body(this, "");
         summaryCard.addView(summaryView);
@@ -201,6 +236,10 @@ public class BuildOrderActivity extends Activity {
         selectedVillageId = villageId;
         SharedPreferences prefs = getSharedPreferences(BuildOrderStore.PREFS, Context.MODE_PRIVATE);
         order = BuildOrderStore.fromJson(prefs.getString(BuildOrderStore.key(villageId), null));
+        if (autoSwitch != null) {
+            autoSwitch.setChecked(prefs.getBoolean(autoKey(villageId), false));
+            queueNotesView.setText(prefs.getString(notesKey(villageId), "The queue hasn't run yet."));
+        }
         rebuildOptions();
         draw();
     }
@@ -249,6 +288,7 @@ public class BuildOrderActivity extends Activity {
         }
         buildingPicker.setAdapter(spinnerAdapter(labels));
         drawBuilt(village);
+        drawChoices(village);
         levelInput.setEnabled(village != null);
         if (village == null) {
             optionInfoView.setText("This village's buildings haven't been read yet. Open the game and wait for the next check.");
@@ -309,6 +349,113 @@ public class BuildOrderActivity extends Activity {
             card.addView(UiKit.body(this, "No buildings found."));
         }
         builtColumn.addView(card, UiKit.cardParams(this));
+    }
+
+    /** One card per next level the game allows right now, with Build now and Queue. */
+    private void drawChoices(PlayerBuildings.Village village) {
+        choicesColumn.removeAllViews();
+        if (village == null) {
+            return;
+        }
+        int shown = 0;
+        for (final BuildChoices.Row row : BuildChoices.list(rules, player.tribeId, village)) {
+            if (row.verdict.answer == BuildOptions.Answer.NO) {
+                continue;
+            }
+            LinearLayout card = UiKit.card(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            String where = row.slotId > 0 ? " (slot " + row.slotId + ") " + row.fromLevel + " to " + row.toLevel
+                    : " (new)";
+            card.addView(UiKit.body(this, GameData.buildingName(row.typeId) + where));
+            card.addView(UiKit.muted(this, nextLevelText(row.typeId, row.toLevel)
+                    + (row.verdict.answer == BuildOptions.Answer.UNKNOWN ? " " + row.verdict.reason + "." : "")));
+            LinearLayout buttons = new LinearLayout(this);
+            buttons.setOrientation(LinearLayout.HORIZONTAL);
+            if (row.verdict.answer == BuildOptions.Answer.YES) {
+                buttons.addView(UiKit.primaryButton(this, "Build now", new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        confirmBuild(row);
+                    }
+                }));
+            }
+            buttons.addView(UiKit.primaryButton(this, "Queue", new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    queueRow(row);
+                }
+            }));
+            card.addView(buttons);
+            choicesColumn.addView(card, UiKit.cardParams(this));
+            shown++;
+        }
+        if (shown == 0) {
+            LinearLayout empty = UiKit.card(this);
+            empty.addView(UiKit.body(this, "Nothing can be built or upgraded here right now, going by the game's rules."));
+            choicesColumn.addView(empty, UiKit.cardParams(this));
+        }
+    }
+
+    private void queueRow(BuildChoices.Row row) {
+        for (BuildOrderStore.Entry e : order) {
+            if (e.buildingTypeId == row.typeId && e.targetLevel >= row.toLevel) {
+                Toast.makeText(this, "Already in the order", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+        order.add(new BuildOrderStore.Entry(row.typeId, row.toLevel));
+        persist();
+        draw();
+        Toast.makeText(this, "Queued " + GameData.buildingName(row.typeId) + " " + row.toLevel, Toast.LENGTH_SHORT).show();
+    }
+
+    private void confirmBuild(final BuildChoices.Row row) {
+        BuildingRules.Level cost = row.next;
+        String costText = cost == null ? "cost not known"
+                : cost.lumber + " wood, " + cost.clay + " clay, " + cost.iron + " iron, " + cost.crop + " crop";
+        final String label = GameData.buildingName(row.typeId) + " to " + row.toLevel;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Build now?")
+                .setMessage(label + ". Costs " + costText + ". This starts it in the game.")
+                .setPositiveButton("Build", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int w) {
+                        buildNow(row, label);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void buildNow(final BuildChoices.Row row, final String label) {
+        final String villageId = selectedVillageId;
+        final PlayerBuildings.Village village = player.findVillage(villageId);
+        final int slot = row.slotId > 0 ? row.slotId
+                : (village == null ? 0 : BuildChoices.slotForNew(row.typeId, village));
+        if (slot == 0) {
+            Toast.makeText(this, "No free slot for it", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String text;
+                try {
+                    ActionClient.Result r = ActionSender.sendFromScreen(BuildOrderActivity.this,
+                            GameActions.build(villageId, slot, row.typeId, label));
+                    text = label + ": " + r.describe();
+                } catch (Exception e) {
+                    text = label + ": failed (" + e.getClass().getSimpleName() + ")";
+                }
+                final String shown = text;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(BuildOrderActivity.this, shown, Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        }).start();
     }
 
     private void persist() {
