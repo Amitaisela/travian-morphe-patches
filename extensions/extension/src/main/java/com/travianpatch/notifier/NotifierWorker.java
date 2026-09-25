@@ -963,6 +963,21 @@ public class NotifierWorker extends Worker {
                     alerted.remove(r.key);
                 }
             }
+            JSONObject res = village.optJSONObject("resources");
+            if (res != null && res.has("netCropProduction")) {
+                String cropKey = "crop:" + village.opt("id");
+                long net = res.optLong("netCropProduction", 0);
+                long cropStock = res.optLong("cropStock", 0);
+                CropWatch.Action action = CropWatch.decide(alerted.contains(cropKey), net, cropStock);
+                if (action == CropWatch.Action.WARN) {
+                    alerted.add(cropKey);
+                    postNotification(NotificationKind.CROP_NEGATIVE, CropWatch.TITLE,
+                            CropWatch.text(village.optString("name", "your village"), net, cropStock),
+                            cropKey.hashCode(), NotificationCompat.PRIORITY_HIGH);
+                } else if (action == CropWatch.Action.CLEAR) {
+                    alerted.remove(cropKey);
+                }
+            }
             if (!fresh.isEmpty()) {
                 String name = village.optString("name", "your village");
                 postNotification(NotificationKind.RESOURCES_FULL, ResourceAlerts.TITLE,
@@ -1092,6 +1107,13 @@ public class NotifierWorker extends Worker {
                 reminders++;
             } else {
                 noteWake("attack reminder " + alert.key, alert.arrivalMs - AttackAlerts.REMINDER_WAKE_BEFORE_MS);
+            }
+        }
+        for (AttackWaves.Wave wave : AttackWaves.find(attacks, AttackWaves.WINDOW_MS)) {
+            if (wave.lastMs > now && !announced.containsKey(wave.key)) {
+                postNotification(NotificationKind.ATTACK_WAVE, AttackWaves.title(wave), AttackWaves.describe(wave),
+                        wave.key.hashCode(), NotificationCompat.PRIORITY_MAX);
+                announced.put(wave.key, wave.lastMs);
             }
         }
         pruneOld(announced, now);
