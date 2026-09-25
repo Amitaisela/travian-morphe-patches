@@ -19,6 +19,13 @@ final class BuildingRules {
     static final String PREFS = "travian_building_rules";
     static final String KEY_JSON = "bootstrap_json";
     static final String KEY_VERSION = "release_version";
+    /** The query text the saved table was downloaded with; a newer app asking for more fields downloads again. */
+    static final String KEY_QUERY = "query_text";
+
+    /** True when a saved table exists and was downloaded with the query this app version uses. */
+    static boolean cacheUsable(String savedJson, String savedQuery) {
+        return savedJson != null && QUERY.equals(savedQuery);
+    }
 
     /** Cheap check of which game version the table belongs to. */
     static final String VERSION_QUERY = "query { bootstrapData { releaseVersion } }";

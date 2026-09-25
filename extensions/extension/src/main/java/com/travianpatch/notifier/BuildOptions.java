@@ -55,6 +55,10 @@ final class BuildOptions {
                 return new Verdict(Answer.UNKNOWN, "The game's rule (" + restriction + ") can't be checked yet");
             }
         }
+        if (rule.maxPerVillage == 0 && village.countOf(rule.type) > 0) {
+            // The game allows several, but its data doesn't say when another may be started.
+            return new Verdict(Answer.UNKNOWN, "When the game allows another one can't be checked yet");
+        }
         return new Verdict(Answer.YES, "");
     }
 

@@ -179,6 +179,18 @@ public class BuildOrderActivity extends Activity {
                     Toast.LENGTH_SHORT).show();
             return;
         }
+        PlayerBuildings.Village village = player.findVillage(selectedVillageId);
+        int reached = village == null ? 0 : QueueEstimate.reachedLevel(village, option.typeId);
+        for (BuildOrderStore.Entry e : order) {
+            if (e.buildingTypeId == option.typeId && e.targetLevel > reached) {
+                reached = e.targetLevel;
+            }
+        }
+        if (level <= reached) {
+            Toast.makeText(this, "Already at level " + reached + " (built, queued in the game, or in this order)",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
         order.add(new BuildOrderStore.Entry(option.typeId, level));
         persist();
         levelInput.setText("");
@@ -237,7 +249,10 @@ public class BuildOrderActivity extends Activity {
         }
         buildingPicker.setAdapter(spinnerAdapter(labels));
         drawBuilt(village);
-        if (options.isEmpty()) {
+        levelInput.setEnabled(village != null);
+        if (village == null) {
+            optionInfoView.setText("This village's buildings haven't been read yet. Open the game and wait for the next check.");
+        } else if (options.isEmpty()) {
             optionInfoView.setText("Nothing can be built or upgraded here right now, going by the game's rules.");
         }
     }
@@ -303,11 +318,14 @@ public class BuildOrderActivity extends Activity {
     }
 
     private void updateSummary() {
-        QueueEstimate.Result result = QueueEstimate.totalCost(rules, order);
+        QueueEstimate.Result result = QueueEstimate.totalCost(rules, player.findVillage(selectedVillageId), order);
         String cost = result.totalCost.lumber + " wood, " + result.totalCost.clay + " clay, "
                 + result.totalCost.iron + " iron, " + result.totalCost.crop + " crop";
         String note = result.unknownCount == 0 ? ""
                 : " " + result.unknownCount + " item(s) have no cost in the game's table and are not counted.";
+        if (result.alreadyReachedCount > 0) {
+            note += " " + result.alreadyReachedCount + " item(s) are already reached and cost nothing.";
+        }
         VillageResources.Entry stock = VillageResources.find(resources, selectedVillageId);
         String stockNote = stock == null ? " Current stock isn't known yet." : "";
         summaryView.setText("Total: " + cost + ". Time: not known yet." + note + stockNote);

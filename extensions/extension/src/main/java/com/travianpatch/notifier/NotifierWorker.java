@@ -570,7 +570,8 @@ public class NotifierWorker extends Worker {
 
     private void refreshBuildingRules(OkHttpClient http, String gameworldHost) {
         SharedPreferences rulesPrefs = getApplicationContext().getSharedPreferences(BuildingRules.PREFS, Context.MODE_PRIVATE);
-        boolean haveRules = rulesPrefs.getString(BuildingRules.KEY_JSON, null) != null;
+        boolean haveRules = BuildingRules.cacheUsable(rulesPrefs.getString(BuildingRules.KEY_JSON, null),
+                rulesPrefs.getString(BuildingRules.KEY_QUERY, null));
         long now = System.currentTimeMillis();
         if (haveRules && now - statePrefs().getLong(KEY_RULES_CHECKED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
             return;
@@ -592,7 +593,8 @@ public class NotifierWorker extends Worker {
                 return;
             }
             rulesPrefs.edit().putString(BuildingRules.KEY_JSON, rules.toString())
-                    .putString(BuildingRules.KEY_VERSION, version).apply();
+                    .putString(BuildingRules.KEY_VERSION, version)
+                    .putString(BuildingRules.KEY_QUERY, BuildingRules.QUERY).apply();
             statePrefs().edit().putLong(KEY_RULES_CHECKED_AT, now).apply();
             Log.i(TAG, "building rules saved: version " + version + ", " + rules.toString().length() + " chars");
         } catch (Exception e) {
