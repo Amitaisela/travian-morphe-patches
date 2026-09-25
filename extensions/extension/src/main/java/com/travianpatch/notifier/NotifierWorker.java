@@ -615,7 +615,52 @@ public class NotifierWorker extends Worker {
         }
     }
 
+    /**
+     * One-off, read-only diagnostic for the next features (troops, farm lists, crop finder, Gold status):
+     * runs the queries in DataProbe once per install after a poll has seen a village and logs every raw
+     * response. Nothing is shown on any screen and nothing is changed in the game.
+     */
+    private void runDataProbe(OkHttpClient http, String gameworldHost) {
+        SharedPreferences prefs = statePrefs();
+        List<VillageList.Entry> known = VillageList.fromJson(prefs.getString(KEY_VILLAGES, null));
+        if (!DataProbe.shouldRun(prefs.getBoolean(DataProbe.KEY_DONE, false), known.size())) {
+            return;
+        }
+        prefs.edit().putBoolean(DataProbe.KEY_DONE, true).apply();
+        VillageList.Entry village = known.get(0);
+        List<String> queries = new ArrayList<String>(DataProbe.queries(village.id, village.x, village.y));
+        for (int n = 1; n <= queries.size(); n++) {
+            String query = queries.get(n - 1);
+            Log.i(TAG, "DPROBE " + n + " query: " + query);
+            try {
+                JSONObject response = runRootQuery(http, gameworldHost, query);
+                logProbePieces(n, response.toString());
+                JSONObject player = dataObject(response, "ownPlayer");
+                JSONArray lists = player == null ? null : player.optJSONArray("farmLists");
+                if (lists != null && lists.length() > 0 && lists.optJSONObject(0) != null) {
+                    queries.add(DataProbe.farmSlotsQuery(lists.optJSONObject(0).optLong("id")));
+                }
+            } catch (Exception e) {
+                Log.i(TAG, "DPROBE " + n + " failed: " + e);
+            }
+        }
+        Log.i(TAG, "DPROBE finished");
+    }
+
+    private void logProbePieces(int n, String response) {
+        Log.i(TAG, "DPROBE " + n + " response length: " + response.length());
+        List<String> pieces = DataProbe.split(cut(response, DataProbe.MAX_LOGGED_CHARS), DataProbe.LOG_PIECE);
+        for (int k = 0; k < pieces.size(); k++) {
+            Log.i(TAG, "DPROBE " + n + " part " + (k + 1) + "/" + pieces.size() + ": " + pieces.get(k));
+        }
+    }
+
     private void checkExtras(OkHttpClient http, String gameworldHost) {
+        try {
+            runDataProbe(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "data probe failed: " + e);
+        }
         try {
             refreshBuildingData(http, gameworldHost);
         } catch (Exception e) {
