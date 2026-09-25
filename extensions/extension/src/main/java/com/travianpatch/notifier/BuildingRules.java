@@ -35,7 +35,7 @@ final class BuildingRules {
             + "buildings { type maxLevel maxPerVillage baseBuildingTime buildingTimeFactor additionalBuildingTime "
             + "validTribes validVillageTypes requiredBuildings { buildingTypeId level } restrictions "
             + "levels { level cropUsage producedCulture producedPopulation effectValue "
-            + "buildingCost { lumber clay iron crop } } } } }";
+            + "buildingCost { lumber clay iron crop } } extension { maxLevel } } } }";
 
     /** One alternative inside a requirement group. A negative buildingTypeId means "must not have that building". */
     static final class Requirement {
@@ -83,6 +83,8 @@ final class BuildingRules {
         final List<List<Requirement>> requirements;
         final List<String> restrictions;
         final List<Level> levels;
+        /** The game gives walls an "extension" block; true when this type has one. */
+        boolean hasExtension;
 
         Rule(int type, int maxLevel, int maxPerVillage, long baseBuildingTime, double buildingTimeFactor,
              long additionalBuildingTime, List<Integer> validTribes, List<Integer> validVillageTypes,
@@ -195,11 +197,13 @@ final class BuildingRules {
                         lv.optLong("producedCulture", 0), lv.optLong("cropUsage", 0)));
             }
         }
-        return new Rule(b.optInt("type"), b.optInt("maxLevel", 0), b.optInt("maxPerVillage", 0),
+        Rule rule = new Rule(b.optInt("type"), b.optInt("maxLevel", 0), b.optInt("maxPerVillage", 0),
                 b.optLong("baseBuildingTime", 0), b.optDouble("buildingTimeFactor", 0),
                 b.optLong("additionalBuildingTime", 0), intList(b.optJSONArray("validTribes")),
                 intList(b.optJSONArray("validVillageTypes")), requirements,
                 stringList(b.optJSONArray("restrictions")), levels);
+        rule.hasExtension = b.optJSONObject("extension") != null;
+        return rule;
     }
 
     private static List<Integer> intList(JSONArray array) {

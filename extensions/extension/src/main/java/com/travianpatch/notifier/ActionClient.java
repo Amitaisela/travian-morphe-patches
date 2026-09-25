@@ -45,6 +45,21 @@ final class ActionClient {
 
     static final Settings DEFAULT_SETTINGS = new Settings(false, true, 10);
 
+    /** Attack data older than this (or never read) counts as "an attack may land now" for automatic actions. */
+    static final long ATTACK_DATA_MAX_AGE_MS = 15 * 60_000L;
+
+    /**
+     * The landing time the guard should use: the saved one when the attack list was read recently and
+     * completely, otherwise "right now", so missing or stale data pauses automation instead of reading as
+     * "no attack".
+     */
+    static long effectiveNextAttack(long savedNextMs, long knownAtMs, long nowMs) {
+        if (knownAtMs <= 0 || nowMs - knownAtMs > ATTACK_DATA_MAX_AGE_MS) {
+            return nowMs + 1;
+        }
+        return savedNextMs;
+    }
+
     static final class Result {
         /** SENT, DRY_RUN, REFUSED or FAILED. */
         final String outcome;

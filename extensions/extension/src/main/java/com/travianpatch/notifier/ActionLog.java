@@ -52,6 +52,16 @@ final class ActionLog {
         return out.toString();
     }
 
+    /** True when the newest entry has the same label and outcome and is younger than windowMs (skip logging it). */
+    static boolean isRepeat(String json, String label, String outcome, long nowMs, long windowMs) {
+        List<Entry> entries = read(json);
+        if (entries.isEmpty()) {
+            return false;
+        }
+        Entry last = entries.get(0);
+        return last.label.equals(label) && last.outcome.equals(outcome) && nowMs - last.atMs < windowMs;
+    }
+
     /** Newest first; never throws (a corrupt log reads as empty). */
     static List<Entry> read(String json) {
         List<Entry> out = new ArrayList<Entry>();

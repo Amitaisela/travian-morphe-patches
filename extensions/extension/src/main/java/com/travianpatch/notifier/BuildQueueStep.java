@@ -120,7 +120,10 @@ final class BuildQueueStep {
         }
         int slot = BuildChoices.slotForNew(typeId, village);
         BuildOptions.Verdict verdict = BuildOptions.canBuildNew(rule, tribeId, village);
-        if (slot == 0 && verdict.answer != BuildOptions.Answer.NO) {
+        if (rule.hasExtension && verdict.answer != BuildOptions.Answer.NO) {
+            verdict = new BuildOptions.Verdict(BuildOptions.Answer.UNKNOWN, "Where the game puts a wall isn't confirmed yet");
+            slot = 0;
+        } else if (slot == 0 && verdict.answer != BuildOptions.Answer.NO) {
             verdict = new BuildOptions.Verdict(BuildOptions.Answer.NO, "No free slot for it");
         }
         return new BuildChoices.Row(slot, typeId, 0, 1, verdict, rule.levelData(1));

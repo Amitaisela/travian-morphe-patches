@@ -82,6 +82,8 @@ public class NotifierWorker extends Worker {
     static final String KEY_PLAYER_BUILDINGS = "player_buildings_json";
     /** When the soonest incoming attack lands (epoch ms, 0 = none), saved each check for the action guard. */
     static final String KEY_NEXT_ATTACK_AT = "next_attack_at";
+    /** When the attack list was last read completely (epoch ms); older or missing pauses automatic actions. */
+    static final String KEY_ATTACKS_KNOWN_AT = "attacks_known_at";
     private static final String KEY_RULES_CHECKED_AT = "building_rules_checked_at";
     /** "true"/"false" once read, absent until then; read by the Hub screen. */
     static final String KEY_GOLD_CLUB = "gold_club";
@@ -526,9 +528,12 @@ public class NotifierWorker extends Worker {
         statTrainings = stillActive.size() - buildCount;
         statAttacks = withMovements ? attacks.size() : -1;
         statArrivals = withMovements ? arrivals.size() : -1;
+        if (withMovements && movementsComplete) {
+            long nowMs = System.currentTimeMillis();
+            statePrefs().edit().putLong(KEY_NEXT_ATTACK_AT, AttackAlerts.nextArrivalMs(attacks, nowMs))
+                    .putLong(KEY_ATTACKS_KNOWN_AT, nowMs).apply();
+        }
         if (withMovements) {
-            statePrefs().edit().putLong(KEY_NEXT_ATTACK_AT,
-                    AttackAlerts.nextArrivalMs(attacks, System.currentTimeMillis())).apply();
             announceAttacks(attacks);
             if (movementsComplete) {
                 reportArrivals(arrivals);
@@ -610,7 +615,11 @@ public class NotifierWorker extends Worker {
         }
     }
 
+    /** True only when this check read the player's buildings successfully (the build queue relies on it). */
+    private boolean buildingsFresh;
+
     private void refreshPlayerBuildings(OkHttpClient http, String gameworldHost) {
+        buildingsFresh = false;
         try {
             JSONObject player = dataObject(runRootQuery(http, gameworldHost, PlayerBuildings.QUERY), "ownPlayer");
             if (player == null || PlayerBuildings.parse(player.toString()) == null) {
@@ -618,6 +627,7 @@ public class NotifierWorker extends Worker {
                 return;
             }
             statePrefs().edit().putString(KEY_PLAYER_BUILDINGS, player.toString()).apply();
+            buildingsFresh = true;
         } catch (Exception e) {
             Log.w(TAG, "player buildings refresh failed: " + e);
         }
@@ -673,6 +683,10 @@ public class NotifierWorker extends Worker {
         if (!ActionSender.settings(ctx).masterOn) {
             return;
         }
+        if (!buildingsFresh) {
+            Log.i(TAG, "build queues skipped: buildings not read in this check");
+            return;
+        }
         SharedPreferences state = statePrefs();
         PlayerBuildings player = PlayerBuildings.parse(state.getString(KEY_PLAYER_BUILDINGS, null));
         BuildingRules rules = BuildingRules.parse(ctx.getSharedPreferences(BuildingRules.PREFS, Context.MODE_PRIVATE)
@@ -717,13 +731,29 @@ public class NotifierWorker extends Worker {
             if (out.fire == null) {
                 continue;
             }
+            String failKey = "fail_" + village.id + "_" + out.fire.slotId + "_" + out.fire.toLevel;
+            int failures = orders.getInt(failKey, 0);
+            long until = orders.getLong(failKey + "_until", 0);
+            String label = GameData.buildingName(out.fire.typeId) + " to " + out.fire.toLevel;
+            if (now < until) {
+                orders.edit().putString(BuildOrderActivity.notesKey(village.id), label + ": the game refused it, trying "
+                        + "again at " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+                        .format(new java.util.Date(until))).apply();
+                continue;
+            }
             try {
-                String label = GameData.buildingName(out.fire.typeId) + " to " + out.fire.toLevel;
                 ActionClient.Result r = ActionSender.send(ctx, http, gameworldHost,
                         GameActions.build(village.id, out.fire.slotId, out.fire.typeId, label), true);
                 Log.i(TAG, "build queue " + village.id + ": " + label + " -> " + r.outcome);
                 if (r.sessionExpired) {
                     clearCachedWorldToken();
+                } else if ("FAILED".equals(r.outcome)) {
+                    orders.edit().putInt(failKey, failures + 1)
+                            .putLong(failKey + "_until", now + Backoff.delayMs(failures + 1))
+                            .putString(BuildOrderActivity.notesKey(village.id), label + ": the game said no ("
+                                    + r.describe() + ")").apply();
+                } else if ("SENT".equals(r.outcome)) {
+                    orders.edit().remove(failKey).remove(failKey + "_until").apply();
                 }
             } catch (Exception e) {
                 Log.w(TAG, "build queue send failed: " + e);

@@ -379,12 +379,21 @@ public class BuildOrderActivity extends Activity {
                     }
                 }));
             }
-            buttons.addView(UiKit.primaryButton(this, "Queue", new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    queueRow(row);
-                }
-            }));
+            // A queue entry is "type to level" and works on the highest slot of that type, so Queue is offered
+            // only where it does exactly what the card says.
+            BuildChoices.Row target = BuildQueueStep.rowFor(rules, player.tribeId, village, row.typeId);
+            boolean queueFits = row.slotId > 0 ? target != null && target.slotId == row.slotId
+                    : village.countOf(row.typeId) == 0;
+            if (queueFits) {
+                buttons.addView(UiKit.primaryButton(this, "Queue", new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        queueRow(row);
+                    }
+                }));
+            } else {
+                card.addView(UiKit.muted(this, "Queue works on the highest building of this kind; use Build now here."));
+            }
             card.addView(buttons);
             choicesColumn.addView(card, UiKit.cardParams(this));
             shown++;
@@ -414,9 +423,15 @@ public class BuildOrderActivity extends Activity {
         String costText = cost == null ? "cost not known"
                 : cost.lumber + " wood, " + cost.clay + " clay, " + cost.iron + " iron, " + cost.crop + " crop";
         final String label = GameData.buildingName(row.typeId) + " to " + row.toLevel;
+        long nextAttack = getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE)
+                .getLong(NotifierWorker.KEY_NEXT_ATTACK_AT, 0);
+        long minutes = (nextAttack - System.currentTimeMillis()) / 60_000L;
+        String warning = nextAttack > System.currentTimeMillis() && minutes < ActionSender.settings(this).attackPauseMinutes
+                ? " Warning: an attack lands in about " + Math.max(0, minutes) + " min; resources spent now can't be looted."
+                : "";
         new android.app.AlertDialog.Builder(this)
                 .setTitle("Build now?")
-                .setMessage(label + ". Costs " + costText + ". This starts it in the game.")
+                .setMessage(label + ". Costs " + costText + ". This starts it in the game." + warning)
                 .setPositiveButton("Build", new android.content.DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(android.content.DialogInterface d, int w) {

@@ -71,45 +71,101 @@ final class ActionSender {
                 }
             }
         };
+        // One send at a time in this app (worker, screen taps, a second worker): the dedupe memory is read,
+        // checked, marked and saved under this lock, so two overlapping sends can never both go out.
+        synchronized (SEND_LOCK) {
+            return sendLocked(ctx, transport, action, automated);
+        }
+    }
+
+    private static final Object SEND_LOCK = new Object();
+
+    private static ActionClient.Result sendLocked(Context ctx, ActionClient.Transport transport, GameAction action,
+                                                  boolean automated) {
         SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         SharedPreferences state = ctx.getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE);
         Map<String, Long> recent = loadRecent(p.getString(KEY_RECENT, null));
         ActionClient.Settings settings = settings(ctx);
         long now = System.currentTimeMillis();
-        long nextAttack = state.getLong(NotifierWorker.KEY_NEXT_ATTACK_AT, 0);
+        long nextAttack = ActionClient.effectiveNextAttack(state.getLong(NotifierWorker.KEY_NEXT_ATTACK_AT, 0),
+                state.getLong(NotifierWorker.KEY_ATTACKS_KNOWN_AT, 0), now);
 
-        if (("BUILD".equals(action.kind) || "TRAIN".equals(action.kind)) && knownVillages(state) > 1) {
-            try {
-                ActionClient.Result switched = ActionClient.sendWith(transport,
-                        GameActions.changeVillage(action.villageId), automated, settings, now, nextAttack, recent);
-                record(ctx, GameActionsLabel.of(action, "switch village"), switched);
-                if (!"SENT".equals(switched.outcome) && !"DRY_RUN".equals(switched.outcome)) {
-                    saveRecent(p, recent, now);
-                    return switched;
+        if ("BUILD".equals(action.kind) || "TRAIN".equals(action.kind)) {
+            int villages = villageCount(state);
+            if (villages < 1) {
+                return finish(ctx, p, recent, now, action, new ActionClient.Result("REFUSED", 0,
+                        "the village list isn't read yet", false, null));
+            }
+            if (villages > 1) {
+                // Check the action itself first, so a refused action never moves the game's current village.
+                ActionClient.Result pre = preflight(action, automated, settings, now, nextAttack, recent);
+                if (pre != null) {
+                    return finish(ctx, p, recent, now, action, pre);
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "village switch failed: " + e);
+                ActionClient.Result switched;
+                try {
+                    switched = ActionClient.sendWith(transport, GameActions.changeVillage(action.villageId), automated,
+                            settings, now, nextAttack, recent);
+                } catch (Exception e) {
+                    switched = new ActionClient.Result("FAILED", 0, "couldn't switch village (" + e + ")", false, null);
+                }
+                if (!"SENT".equals(switched.outcome) && !"DRY_RUN".equals(switched.outcome)) {
+                    return finish(ctx, p, recent, now, action, new ActionClient.Result("REFUSED", 0,
+                            "not sent: switching to the village failed (" + switched.describe() + ")", false, null));
+                }
             }
         }
         ActionClient.Result result = ActionClient.sendWith(transport, action, automated, settings, now, nextAttack, recent);
-        saveRecent(p, recent, now);
-        record(ctx, action, result);
+        if (result.sessionExpired) {
+            state.edit().remove(NotifierWorker.KEY_WORLD_HOST).remove(NotifierWorker.KEY_WORLD_TOKEN)
+                    .remove(NotifierWorker.KEY_WORLD_TOKEN_EXP).commit();
+        }
         Log.i(TAG, "action " + action.kind + " " + action.label + ": " + result.outcome
-                + (result.httpCode > 0 ? " HTTP " + result.httpCode : "") + " " + ActionClient.serverMessage(
-                result.responseBody == null ? "" : result.responseBody));
-        return result;
+                + (result.httpCode > 0 ? " HTTP " + result.httpCode : "") + " " + result.describe());
+        return finish(ctx, p, recent, now, action, result);
     }
 
-    private static int knownVillages(SharedPreferences state) {
-        List<VillageList.Entry> v = VillageList.fromJson(state.getString(NotifierWorker.KEY_VILLAGES, null));
-        return v.size();
+    /** The guard's answer for the action without sending or marking anything; null when it may go. */
+    private static ActionClient.Result preflight(GameAction action, boolean automated, ActionClient.Settings settings,
+                                                 long now, long nextAttack, Map<String, Long> recent) {
+        ActionGuard.Input in = new ActionGuard.Input();
+        in.path = action.path;
+        in.automated = automated;
+        in.masterOn = settings.masterOn;
+        in.dryRun = settings.dryRun;
+        in.nowMs = now;
+        in.nextAttackLandingMs = nextAttack;
+        in.attackPauseMinutes = settings.attackPauseMinutes;
+        in.dedupeKey = action.dedupeKey;
+        in.recentKeys = recent;
+        ActionGuard.Verdict v = ActionGuard.check(in);
+        return v.allowed ? null : new ActionClient.Result("REFUSED", 0, v.reason, false, null);
+    }
+
+    private static ActionClient.Result finish(Context ctx, SharedPreferences p, Map<String, Long> recent, long now,
+                                              GameAction action, ActionClient.Result r) {
+        saveRecent(p, recent, now);
+        record(ctx, action, r);
+        return r;
+    }
+
+    /** How many villages the player has, from the game's own buildings data; 0 when not read yet. */
+    private static int villageCount(SharedPreferences state) {
+        PlayerBuildings player = PlayerBuildings.parse(state.getString(NotifierWorker.KEY_PLAYER_BUILDINGS, null));
+        return player == null ? 0 : player.villages.size();
     }
 
     static void record(Context ctx, GameAction action, ActionClient.Result r) {
         SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        String json = ActionLog.add(p.getString(ActionLog.KEY, null), new ActionLog.Entry(System.currentTimeMillis(),
-                action.kind, action.label, r.outcome, r.describe()), ActionLog.CAP);
-        p.edit().putString(ActionLog.KEY, json).apply();
+        String old = p.getString(ActionLog.KEY, null);
+        long now = System.currentTimeMillis();
+        if (!"SENT".equals(r.outcome) && !"FAILED".equals(r.outcome)
+                && ActionLog.isRepeat(old, action.label, r.outcome, now, 30 * 60_000L)) {
+            return; // the same practice/not-sent line every check would flood the log
+        }
+        String json = ActionLog.add(old, new ActionLog.Entry(now, action.kind, action.label, r.outcome, r.describe()),
+                ActionLog.CAP);
+        p.edit().putString(ActionLog.KEY, json).commit();
     }
 
     private static Map<String, Long> loadRecent(String json) {
@@ -141,14 +197,6 @@ final class ActionSender {
                 }
             }
         }
-        p.edit().putString(KEY_RECENT, o.toString()).apply();
-    }
-
-    /** Small helper so a village switch shows in the log next to the action it was for. */
-    static final class GameActionsLabel {
-        static GameAction of(GameAction a, String what) {
-            return new GameAction("VILLAGE", a.villageId, "/village/change-current", a.body,
-                    what + " for " + a.label, "log-only");
-        }
+        p.edit().putString(KEY_RECENT, o.toString()).commit();
     }
 }

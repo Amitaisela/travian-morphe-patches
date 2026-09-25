@@ -12,8 +12,6 @@ final class BuildChoices {
 
     /** Slot the game uses for the Rally Point (seen in live data: Rally Point on slot 39). */
     static final int RALLY_POINT_SLOT = 39;
-    /** Slot for the wall types (31-33): inferred, not yet seen in live data. */
-    static final int WALL_SLOT = 40;
     static final int RALLY_POINT_TYPE = 16;
 
     private BuildChoices() {
@@ -61,7 +59,9 @@ final class BuildChoices {
                 continue; // resource fields only exist on their own slots; they are upgraded, never built new
             }
             BuildOptions.Verdict verdict = BuildOptions.canBuildNew(rule, tribeId, village);
-            if (verdict.answer != BuildOptions.Answer.NO && slotForNew(rule.type, village) == 0) {
+            if (verdict.answer != BuildOptions.Answer.NO && rule.hasExtension) {
+                verdict = new BuildOptions.Verdict(BuildOptions.Answer.UNKNOWN, "Where the game puts a wall isn't confirmed yet");
+            } else if (verdict.answer != BuildOptions.Answer.NO && slotForNew(rule.type, village) == 0) {
                 verdict = new BuildOptions.Verdict(BuildOptions.Answer.NO, "No free slot for it");
             }
             rows.add(new Row(0, rule.type, 0, 1, verdict, rule.levelData(1)));
@@ -73,9 +73,6 @@ final class BuildChoices {
     static int slotForNew(int typeId, PlayerBuildings.Village village) {
         if (typeId == RALLY_POINT_TYPE) {
             return free(village, RALLY_POINT_SLOT) ? RALLY_POINT_SLOT : 0;
-        }
-        if (typeId >= 31 && typeId <= 33) {
-            return free(village, WALL_SLOT) ? WALL_SLOT : 0;
         }
         for (int s = 19; s <= 38; s++) {
             if (free(village, s)) {
