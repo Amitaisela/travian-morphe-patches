@@ -8,7 +8,7 @@ final class ActionGuard {
     /** Only these request paths may ever be sent. Anything else (and every /premium path) is refused. */
     static final String[] ALLOWED_PREFIXES = {
             "/building/build/", "/building/cancel/", "/units/research", "/units/improve",
-            "/farm-list/send",
+            "/farm-list/send", "/village/change-current",
     };
     static final String TRAIN_MARK = "/train";
     static final long DEDUPE_MS = 60_000L;
