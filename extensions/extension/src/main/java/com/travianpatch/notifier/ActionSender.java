@@ -128,7 +128,6 @@ final class ActionSender {
                     why = "couldn't open the village (" + e.getClass().getSimpleName() + ")";
                 }
                 if (why != null) {
-                    Log.i(TAG, "action " + action.kind + " " + action.label + ": stopped before sending: " + why);
                     return finish(ctx, p, recent, now, action, new ActionClient.Result("REFUSED", 0,
                             "not sent: " + why, false, null));
                 }
@@ -142,8 +141,6 @@ final class ActionSender {
             state.edit().remove(NotifierWorker.KEY_WORLD_HOST).remove(NotifierWorker.KEY_WORLD_TOKEN)
                     .remove(NotifierWorker.KEY_WORLD_TOKEN_EXP).commit();
         }
-        Log.i(TAG, "action " + action.kind + " " + action.label + ": " + result.outcome
-                + (result.httpCode > 0 ? " HTTP " + result.httpCode : "") + " " + result.describe());
         return finish(ctx, p, recent, now, action, result);
     }
 
@@ -177,6 +174,9 @@ final class ActionSender {
 
     private static ActionClient.Result finish(Context ctx, SharedPreferences p, Map<String, Long> recent, long now,
                                               GameAction action, ActionClient.Result r) {
+        // Every outcome goes to the phone log, including ones stopped before anything was sent.
+        Log.i(TAG, "action " + action.kind + " " + action.label + ": " + r.outcome
+                + (r.httpCode > 0 ? " HTTP " + r.httpCode : "") + " " + r.describe());
         saveRecent(p, recent, now);
         record(ctx, action, r);
         return r;

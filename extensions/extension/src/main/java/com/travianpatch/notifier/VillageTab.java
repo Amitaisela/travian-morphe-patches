@@ -736,6 +736,7 @@ final class VillageTab implements HubActivity.Tab {
             Toast.makeText(a, "No free slot for it", Toast.LENGTH_SHORT).show();
             return;
         }
+        Toast.makeText(a, label + ": sending (opening the village first, a few seconds)…", Toast.LENGTH_SHORT).show();
         new Thread(new Runnable() {
             @Override
             public void run() {
