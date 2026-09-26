@@ -25,7 +25,7 @@ import java.util.Map;
  */
 final class OasisTab implements HubActivity.Tab {
 
-    private static final String KEY_SCAN = "oasis_scan_json";
+    private static final String KEY_SCAN = "oasis_scan_json_v2";
     private static final long STALE_MS = 10 * 60_000L;
 
     private final HubActivity a;
@@ -174,7 +174,7 @@ final class OasisTab implements HubActivity.Tab {
                     Map<String, Integer> units = new HashMap<String, Integer>();
                     units.put("t11", 1);
                     ActionClient.Result r = ActionSender.sendFromScreen(a,
-                            TroopSend.raid(village.id, tribeId(), o.x, o.y, units, label));
+                            TroopSend.raid(village.id, o.cellId, o.x, o.y, units, label));
                     text = label + ": " + r.describe();
                 } catch (Exception e) {
                     text = label + ": failed (" + e.getClass().getSimpleName() + ")";
@@ -251,11 +251,5 @@ final class OasisTab implements HubActivity.Tab {
         List<VillageList.Entry> list = VillageList.fromJson(a.getSharedPreferences(NotifierWorker.STATE_PREFS,
                 Context.MODE_PRIVATE).getString(NotifierWorker.KEY_VILLAGES, null));
         return list.isEmpty() ? null : list.get(0);
-    }
-
-    private int tribeId() {
-        PlayerBuildings p = PlayerBuildings.parse(a.getSharedPreferences(NotifierWorker.STATE_PREFS,
-                Context.MODE_PRIVATE).getString(NotifierWorker.KEY_PLAYER_BUILDINGS, null));
-        return p == null ? 0 : p.tribeId;
     }
 }

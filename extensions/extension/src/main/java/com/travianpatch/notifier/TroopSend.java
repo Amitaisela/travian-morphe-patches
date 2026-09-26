@@ -16,6 +16,8 @@ final class TroopSend {
     static final String PATH = "/troop/send";
     /** The game's event type for a raid (RallyPoint.AttackType.Raid). */
     static final int RAID = 4;
+    /** The game's troopType for attack, raid and reinforcement (2 is only for send-home and forward). */
+    static final int TROOP_TYPE_DEFAULT = 1;
     static final String[] UNITS = {"t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11"};
     /**
      * Stop after step 1 and show what the game answered. On until one watched try shows where the one-time
@@ -26,10 +28,17 @@ final class TroopSend {
     private TroopSend() {
     }
 
-    /** Raid the map cell (x|y) from this village with these units ("t1".."t11", hero = t11). */
-    static GameAction raid(String villageId, int tribeId, int x, int y, Map<String, Integer> units, String label)
+    /**
+     * Raid a map cell from this village with these units ("t1".."t11", hero = t11). The body is exactly what
+     * the game's own rally point sends (SendTroopsCheckout.SendTroops): the target is only the map cell id
+     * (MapCell.id), troopType 1 (GetTroopType: 1 for attack/raid/reinforce), and each troop entry holds just
+     * the 11 unit counts and useShip. x and y are only for the label and the dedupe key.
+     */
+    static GameAction raid(String villageId, int targetCellId, int x, int y, Map<String, Integer> units, String label)
             throws Exception {
-        int vid = Integer.parseInt(villageId);
+        if (targetCellId <= 0) {
+            throw new IllegalArgumentException("target map cell not known");
+        }
         JSONObject troop = new JSONObject();
         int total = 0;
         for (String u : UNITS) {
@@ -41,13 +50,14 @@ final class TroopSend {
         if (total == 0) {
             throw new IllegalArgumentException("no troops chosen");
         }
-        troop.put("villageId", vid).put("tribeId", tribeId).put("useShip", false);
+        troop.put("useShip", false);
         JSONObject body = new JSONObject()
                 .put("action", "troopsSend")
-                .put("eventType", RAID)
-                .put("villageId", vid)
-                .put("target", new JSONObject().put("x", x).put("y", y))
+                .put("villageId", Integer.parseInt(villageId))
+                .put("troopType", TROOP_TYPE_DEFAULT)
+                .put("target", new JSONObject().put("mapId", targetCellId))
                 .put("redeployHero", false)
+                .put("eventType", RAID)
                 .put("troops", new JSONArray().put(troop));
         return new GameAction(KIND, villageId, PATH, body, label, "troops:" + villageId + ":" + x + "|" + y);
     }

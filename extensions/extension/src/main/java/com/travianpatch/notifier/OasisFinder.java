@@ -30,12 +30,15 @@ final class OasisFinder {
 
     static final class Oasis {
         final int id, x, y, type;
+        /** The map cell's id (MapCell.id): what a troop send targets. 0 when not read. */
+        final int cellId;
         /** Animals by unit code ("t1".."t10"); null when the game didn't say. */
         final Map<String, Integer> animals;
         final double distance;
 
-        Oasis(int id, int x, int y, int type, Map<String, Integer> animals, double distance) {
+        Oasis(int id, int cellId, int x, int y, int type, Map<String, Integer> animals, double distance) {
             this.id = id;
+            this.cellId = cellId;
             this.x = x;
             this.y = y;
             this.type = type;
@@ -77,7 +80,7 @@ final class OasisFinder {
         for (int dy = -RADIUS; dy <= RADIUS; dy++) {
             for (int dx = -RADIUS; dx <= RADIUS; dx++) {
                 b.append(" c").append(n++).append(": mapCell(coordinates: { x: ").append(x + dx).append(", y: ")
-                        .append(y + dy).append(" }) { x y oasis { id x y type ... on FreeOasis { troops "
+                        .append(y + dy).append(" }) { id x y oasis { id x y type ... on FreeOasis { troops "
                         + "{ t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 } } } }");
             }
         }
@@ -115,7 +118,8 @@ final class OasisFinder {
                     }
                 }
             }
-            out.add(new Oasis(o.optInt("id"), x, y, o.optInt("type"), animals, distance(fromX, fromY, x, y)));
+            out.add(new Oasis(o.optInt("id"), cell.optInt("id", 0), x, y, o.optInt("type"), animals,
+                    distance(fromX, fromY, x, y)));
         }
         Collections.sort(out, new Comparator<Oasis>() {
             @Override
