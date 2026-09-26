@@ -123,6 +123,8 @@ public class NotifierWorker extends Worker {
 
     // earliest upcoming finish seen during this run (epoch ms), and whether a just-passed one is still listed
     private long nextWakeMs = Long.MAX_VALUE;
+    /** This check's incoming attacks, set only when every village's attack list was read. */
+    private List<AttackAlerts.Alert> completeAttacks;
     private boolean lagging = false;
     private int currentTribeId = -1; // tribe of the village being read, for logging trained unit ids
     // what this run saw, saved for the Travian Tools screen (-1 = not checked)
@@ -532,6 +534,7 @@ public class NotifierWorker extends Worker {
             long nowMs = System.currentTimeMillis();
             statePrefs().edit().putLong(KEY_NEXT_ATTACK_AT, AttackAlerts.nextArrivalMs(attacks, nowMs))
                     .putLong(KEY_ATTACKS_KNOWN_AT, nowMs).apply();
+            completeAttacks = attacks;
         }
         if (withMovements) {
             announceAttacks(attacks);
@@ -892,6 +895,109 @@ public class NotifierWorker extends Worker {
         }
     }
 
+    /**
+     * Troop escape (Settings, off by default): shortly before an attack lands on a village, raids the
+     * nearest empty oasis with the troops at home. EscapePlanner decides when; the game's step-1 preview
+     * (its own travel time) decides whether an oasis is far enough that the troops are still away when the
+     * wave's last attack lands; up to MAX_TRIES of the nearest empty oases are tried. Sends through
+     * ActionSender (master switch, practice mode, village steps, log); the attack pause doesn't apply.
+     */
+    private void checkEscape(OkHttpClient http, String gameworldHost) throws Exception {
+        Context ctx = getApplicationContext();
+        SharedPreferences p = ctx.getSharedPreferences(ActionSender.PREFS, Context.MODE_PRIVATE);
+        EscapePlanner.Settings s = new EscapePlanner.Settings(p.getBoolean(EscapePlanner.KEY_ON, false),
+                p.getInt(EscapePlanner.KEY_LEAD_MIN, EscapePlanner.DEFAULT_LEAD_MIN),
+                p.getBoolean(EscapePlanner.KEY_HERO, true), p.getInt(EscapePlanner.KEY_MIN_ATTACK, 0));
+        if (!s.on || completeAttacks == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        List<Long> handled = EscapePlanner.handled(p.getString(EscapePlanner.KEY_DONE, null), now);
+        for (VillageList.Entry v : VillageList.fromJson(statePrefs().getString(KEY_VILLAGES, null))) {
+            List<Long> arrivals = new ArrayList<Long>();
+            for (AttackAlerts.Alert a : completeAttacks) {
+                if (a.targetX == v.x && a.targetY == v.y) {
+                    arrivals.add(a.arrivalMs);
+                }
+            }
+            EscapePlanner.Plan plan = EscapePlanner.plan(s, arrivals, now, handled);
+            if ("wait".equals(plan.step)) {
+                noteWake("escape " + v.name, plan.wakeAtMs);
+                continue;
+            }
+            if (!"go".equals(plan.step)) {
+                continue;
+            }
+            // Handled from here on, whatever happens, so one wave is acted on once.
+            p.edit().putString(EscapePlanner.KEY_DONE, EscapePlanner.withHandled(handled, plan.firstImpactMs)).apply();
+            handled.add(plan.firstImpactMs);
+            String when = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
+                    .format(new java.util.Date(plan.firstImpactMs));
+            JSONObject own = dataObject(runRootQuery(http, gameworldHost, "query { ownVillage(id: "
+                    + Integer.parseInt(v.id) + ") { troops { ownTroopsAtTown { units { t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 "
+                    + "t11 } } } troopOverview { incomingAttacksRaidsPower { attack amount } } } }"), "ownVillage");
+            JSONObject power = own == null || own.optJSONObject("troopOverview") == null ? null
+                    : own.optJSONObject("troopOverview").optJSONObject("incomingAttacksRaidsPower");
+            if (s.minAttackPower > 0 && power != null && power.optInt("attack", 0) < s.minAttackPower) {
+                Log.i(TAG, "escape " + v.name + ": attack power " + power.optInt("attack") + " is under "
+                        + s.minAttackPower + ", staying home");
+                continue;
+            }
+            JSONObject atTown = own == null || own.optJSONObject("troops") == null ? null
+                    : own.optJSONObject("troops").optJSONObject("ownTroopsAtTown");
+            java.util.Map<String, Integer> units = EscapePlanner.unitsToMove(
+                    atTown == null ? null : atTown.optJSONObject("units"), s.includeHero);
+            if (units.isEmpty()) {
+                Log.i(TAG, "escape " + v.name + ": no troops at home to move");
+                continue;
+            }
+            JSONObject grid = runRootQuery(http, gameworldHost, OasisFinder.gridQuery(v.x, v.y)).optJSONObject("data");
+            List<OasisFinder.Oasis> empties = new ArrayList<OasisFinder.Oasis>();
+            for (OasisFinder.Oasis o : OasisFinder.parseGrid(grid, v.x, v.y)) {
+                if (o.empty() && o.cellId > 0) {
+                    empties.add(o);
+                }
+            }
+            final long lastImpact = plan.lastImpactMs;
+            ActionClient.PreviewCheck check = new ActionClient.PreviewCheck() {
+                @Override
+                public String problem(ActionClient.Response preview) {
+                    return EscapePlanner.previewProblem(preview.body, System.currentTimeMillis(), lastImpact);
+                }
+            };
+            String outcome = null;
+            java.util.List<String> tried = new ArrayList<String>();
+            for (int i = 0; i < empties.size() && i < EscapePlanner.MAX_TRIES; i++) {
+                OasisFinder.Oasis o = empties.get(i);
+                ActionClient.Result r = ActionSender.send(ctx, http, gameworldHost,
+                        TroopSend.escape(v.id, o.cellId, o.x, o.y, units, plan.firstImpactMs), true, check);
+                Log.i(TAG, "escape " + v.name + " -> (" + o.x + "|" + o.y + "): " + r.outcome + " " + r.describe());
+                if (r.sessionExpired) {
+                    clearCachedWorldToken();
+                    break;
+                }
+                if ("SENT".equals(r.outcome) || "DRY_RUN".equals(r.outcome)) {
+                    String arrival = TroopSend.arrivalText(r.responseBody);
+                    outcome = ("SENT".equals(r.outcome) ? "Moved " : "Practice: would move ")
+                            + EscapePlanner.total(units) + " troops from " + v.name + " to the empty oasis ("
+                            + o.x + "|" + o.y + ") before the attack at " + when
+                            + (arrival.isEmpty() ? "" : " (" + arrival + ")");
+                    break;
+                }
+                tried.add("(" + o.x + "|" + o.y + "): " + r.describe());
+                if (!r.describe().contains("too close")) {
+                    break; // refused for another reason (switch off, game said no): trying farther won't help
+                }
+            }
+            if (outcome == null) {
+                outcome = "Couldn't move troops from " + v.name + " before the attack at " + when + ": "
+                        + (empties.isEmpty() ? "no empty oasis within " + OasisFinder.RADIUS + " fields"
+                        : android.text.TextUtils.join("; ", tried));
+            }
+            notify(NotificationKind.TROOPS_ESCAPED, outcome);
+        }
+    }
+
     /** When a build line went idle (saved under key); cleared while the game is building in it. */
     private static long idleSince(SharedPreferences orders, String key, boolean busy, long now) {
         if (busy) {
@@ -907,6 +1013,11 @@ public class NotifierWorker extends Worker {
     }
 
     private void checkExtras(OkHttpClient http, String gameworldHost) {
+        try {
+            checkEscape(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "escape check failed: " + e);
+        }
         try {
             runDataProbe(http, gameworldHost);
         } catch (Exception e) {

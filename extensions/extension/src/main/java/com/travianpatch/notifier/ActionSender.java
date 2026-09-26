@@ -79,6 +79,12 @@ final class ActionSender {
     /** From the background worker, with its own signed-in client. */
     static ActionClient.Result send(Context ctx, final OkHttpClient http, final String host, GameAction action,
                                     boolean automated) {
+        return send(ctx, http, host, action, automated, null);
+    }
+
+    /** From the worker, for a two-step send whose step-1 preview check decides whether step 2 goes. */
+    static ActionClient.Result send(Context ctx, final OkHttpClient http, final String host, GameAction action,
+                                    boolean automated, final ActionClient.PreviewCheck check) {
         ActionClient.Transport transport = new ActionClient.Transport() {
             @Override
             public ActionClient.Response send(String method, String path, String json, String nonce)
@@ -105,14 +111,14 @@ final class ActionSender {
         // One send at a time in this app (worker, screen taps, a second worker): the dedupe memory is read,
         // checked, marked and saved under this lock, so two overlapping sends can never both go out.
         synchronized (SEND_LOCK) {
-            return sendLocked(ctx, transport, action, automated);
+            return sendLocked(ctx, transport, action, automated, check);
         }
     }
 
     private static final Object SEND_LOCK = new Object();
 
     private static ActionClient.Result sendLocked(Context ctx, ActionClient.Transport transport, GameAction action,
-                                                  boolean automated) {
+                                                  boolean automated, ActionClient.PreviewCheck check) {
         SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         SharedPreferences state = ctx.getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE);
         Map<String, Long> recent = loadRecent(p.getString(KEY_RECENT, null));
@@ -165,10 +171,10 @@ final class ActionSender {
                 now = System.currentTimeMillis();
             }
         }
-        boolean troops = TroopSend.KIND.equals(action.kind);
+        boolean troops = TroopSend.KIND.equals(action.kind) || TroopSend.ESCAPE_KIND.equals(action.kind);
         ActionClient.Result result = troops || SilverActions.SELL.equals(action.kind)
                 ? ActionClient.sendTwoStep(transport, action, automated, settings, now, nextAttack, recent,
-                troops ? TroopSend.STEP_ONE_ONLY : SilverActions.SELL_STEP_ONE_ONLY)
+                troops ? TroopSend.STEP_ONE_ONLY : SilverActions.SELL_STEP_ONE_ONLY, check)
                 : ActionClient.sendWith(transport, action, automated, settings, now, nextAttack, recent);
         if (result.sessionExpired) {
             state.edit().remove(NotifierWorker.KEY_WORLD_HOST).remove(NotifierWorker.KEY_WORLD_TOKEN)
@@ -199,6 +205,7 @@ final class ActionSender {
         in.nextAttackLandingMs = nextAttack;
         in.attackPauseOn = settings.attackPauseOn;
         in.attackPauseMinutes = settings.attackPauseMinutes;
+        in.passesAttackPause = TroopSend.ESCAPE_KIND.equals(action.kind);
         in.dedupeKey = action.dedupeKey;
         in.recentKeys = recent;
         ActionGuard.Verdict v = ActionGuard.check(in);

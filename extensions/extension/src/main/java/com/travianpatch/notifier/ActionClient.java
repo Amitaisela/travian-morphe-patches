@@ -41,6 +41,11 @@ final class ActionClient {
         }
     }
 
+    /** Looks at the game's step-1 preview before step 2; returns null to confirm, else why not. */
+    interface PreviewCheck {
+        String problem(Response preview);
+    }
+
     /** The header that carries the one-time token of a two-step send (name from the game's client). */
     static final String NONCE_HEADER = "x-nonce";
 
@@ -131,6 +136,14 @@ final class ActionClient {
      */
     static Result sendTwoStep(Transport transport, GameAction action, boolean automated, Settings settings,
                               long nowMs, long nextAttackLandingMs, Map<String, Long> recentKeys, boolean stepOneOnly) {
+        return sendTwoStep(transport, action, automated, settings, nowMs, nextAttackLandingMs, recentKeys, stepOneOnly,
+                null);
+    }
+
+    /** Like sendTwoStep, but step 2 only goes when check (if any) accepts the game's step-1 preview. */
+    static Result sendTwoStep(Transport transport, GameAction action, boolean automated, Settings settings,
+                              long nowMs, long nextAttackLandingMs, Map<String, Long> recentKeys, boolean stepOneOnly,
+                              PreviewCheck check) {
         Result refused = check(action, automated, settings, nowMs, nextAttackLandingMs, recentKeys);
         if (refused != null) {
             return refused;
@@ -156,6 +169,12 @@ final class ActionClient {
             return new Result("FAILED", first.code, "the game gave no one-time token (" + r.describe()
                     + "); nothing confirmed", false, first.body);
         }
+        if (check != null && first.code >= 200 && first.code < 300) {
+            String problem = check.problem(first);
+            if (problem != null) {
+                return new Result("REFUSED", first.code, "not confirmed: " + problem, false, first.body);
+            }
+        }
         Response second;
         try {
             second = transport.send("POST", action.path, action.body.toString(), nonce);
@@ -178,6 +197,7 @@ final class ActionClient {
         in.nextAttackLandingMs = nextAttackLandingMs;
         in.attackPauseOn = settings.attackPauseOn;
         in.attackPauseMinutes = settings.attackPauseMinutes;
+        in.passesAttackPause = TroopSend.ESCAPE_KIND.equals(action.kind);
         in.dedupeKey = action.dedupeKey;
         in.recentKeys = recentKeys;
         ActionGuard.Verdict verdict = ActionGuard.check(in);

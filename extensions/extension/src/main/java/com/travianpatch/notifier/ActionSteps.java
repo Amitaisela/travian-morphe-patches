@@ -36,7 +36,8 @@ final class ActionSteps {
     /** Actions done inside one village (build, train, research, improve): they go through the village steps. */
     static boolean inVillage(String kind) {
         return "BUILD".equals(kind) || "TRAIN".equals(kind) || "RESEARCH".equals(kind) || "IMPROVE".equals(kind)
-                || "CELEBRATE".equals(kind) || TroopSend.KIND.equals(kind);
+                || "CELEBRATE".equals(kind) || TroopSend.KIND.equals(kind)
+                || TroopSend.ESCAPE_KIND.equals(kind);
     }
 
     /** Pause ranges in ms: after switching village, after opening the village (opening the building), before pressing. */

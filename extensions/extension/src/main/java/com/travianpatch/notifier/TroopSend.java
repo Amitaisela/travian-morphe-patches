@@ -13,6 +13,8 @@ import java.util.Map;
 final class TroopSend {
 
     static final String KIND = "TROOPS";
+    /** Troop escape: the same send, allowed through the attack pause (ActionGuard). */
+    static final String ESCAPE_KIND = "ESCAPE";
     static final String PATH = "/troop/send";
     /** The game's event type for a raid (RallyPoint.AttackType.Raid). */
     static final int RAID = 4;
@@ -36,6 +38,18 @@ final class TroopSend {
      */
     static GameAction raid(String villageId, int targetCellId, int x, int y, Map<String, Integer> units, String label)
             throws Exception {
+        return build(KIND, villageId, targetCellId, x, y, units, label, "troops:" + villageId + ":" + x + "|" + y);
+    }
+
+    /** Troop escape: a raid on an empty oasis before the attack landing at impactMs (one escape per wave). */
+    static GameAction escape(String villageId, int targetCellId, int x, int y, Map<String, Integer> units,
+                             long impactMs) throws Exception {
+        return build(ESCAPE_KIND, villageId, targetCellId, x, y, units, "Escape to (" + x + "|" + y + ")",
+                "escape:" + villageId + ":" + impactMs + ":" + x + "|" + y);
+    }
+
+    private static GameAction build(String kind, String villageId, int targetCellId, int x, int y,
+                                    Map<String, Integer> units, String label, String dedupeKey) throws Exception {
         if (targetCellId <= 0) {
             throw new IllegalArgumentException("target map cell not known");
         }
@@ -59,7 +73,7 @@ final class TroopSend {
                 .put("redeployHero", false)
                 .put("eventType", RAID)
                 .put("troops", new JSONArray().put(troop));
-        return new GameAction(KIND, villageId, PATH, body, label, "troops:" + villageId + ":" + x + "|" + y);
+        return new GameAction(kind, villageId, PATH, body, label, dedupeKey);
     }
 
     /** "arrives in 12 min" from the game's send answer (troops[0].arrivalIn, seconds), or "" if missing. */

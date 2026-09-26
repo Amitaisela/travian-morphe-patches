@@ -37,7 +37,9 @@ enum NotificationKind {
     SILVER_AUCTION("silver_auction", "Silver: auction won or sold",
             "You won an auction, or one of your items sold.", false, true),
     SILVER_DEAL("silver_deal", "Silver: cheap auction ending soon",
-            "An auction ends soon at well under the usual price (limits on the Silver tab).", false, true);
+            "An auction ends soon at well under the usual price (limits on the Silver tab).", false, true),
+    TROOPS_ESCAPED("troops_escaped", "Troops moved away before an attack",
+            "Troop escape sent your troops to an empty oasis before an attack landed, or couldn't.", true, true);
 
     /** Stable key used in storage; never rename an existing one. */
     final String id;

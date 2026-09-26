@@ -20,7 +20,7 @@ import android.widget.Toast;
 final class SettingsTab implements HubActivity.Tab {
 
     private final HubActivity a;
-    private EditText pause, buffer, delayMin, delayMax, quietFrom, quietTo, quietMinH, quietMaxH;
+    private EditText pause, buffer, delayMin, delayMax, quietFrom, quietTo, quietMinH, quietMaxH, escLead, escMin;
 
     SettingsTab(HubActivity a) {
         this.a = a;
@@ -106,6 +106,36 @@ final class SettingsTab implements HubActivity.Tab {
         }
         col.addView(cel, UiKit.cardParams(a));
 
+        col.addView(UiKit.section(a, "Troop escape"));
+        LinearLayout esc = UiKit.card(a);
+        Switch escOn = UiKit.accentSwitch(a, "Move troops away before an attack",
+                p.getBoolean(EscapePlanner.KEY_ON, false));
+        escOn.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                p.edit().putBoolean(EscapePlanner.KEY_ON, on).apply();
+            }
+        });
+        esc.addView(escOn, full());
+        Switch escHero = UiKit.accentSwitch(a, "Take the hero too", p.getBoolean(EscapePlanner.KEY_HERO, true));
+        escHero.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                p.edit().putBoolean(EscapePlanner.KEY_HERO, on).apply();
+            }
+        });
+        esc.addView(escHero, full());
+        escLead = number(String.valueOf(p.getInt(EscapePlanner.KEY_LEAD_MIN, EscapePlanner.DEFAULT_LEAD_MIN)));
+        esc.addView(line("Act this long before it lands", escLead, "min"));
+        escMin = number(String.valueOf(p.getInt(EscapePlanner.KEY_MIN_ATTACK, 0)));
+        esc.addView(line("Only when incoming attack power is at least", escMin, ""));
+        esc.addView(UiKit.muted(a, "Raids the nearest empty oasis with the troops at home (settlers stay) so they're "
+                + "away when the attack lands, and they come back by themselves. The game's own travel time is "
+                + "checked first: an oasis too close to keep them away past the last attack of the wave is skipped. "
+                + "Attack power is the game's total for all attacks on the village (0 = any attack). Needs "
+                + "Automatic actions on; Practice mode applies. Numbers are saved with Save below."));
+        col.addView(esc, UiKit.cardParams(a));
+
         AutomationSettings.Config c = AutomationSettings.fromJson(a.getSharedPreferences(AutomationSettings.PREFS,
                 Context.MODE_PRIVATE).getString(AutomationSettings.KEY, null));
         col.addView(UiKit.section(a, "Auto-build timing"));
@@ -146,6 +176,11 @@ final class SettingsTab implements HubActivity.Tab {
     private void save(SharedPreferences p) {
         try {
             int pauseMin = Integer.parseInt(pause.getText().toString().trim());
+            int lead = Integer.parseInt(escLead.getText().toString().trim());
+            int minAttack = Integer.parseInt(escMin.getText().toString().trim());
+            if (lead < 1 || lead > 60 || minAttack < 0) {
+                throw new IllegalArgumentException("escape: 1-60 minutes, attack power 0 or more");
+            }
             int buf = Integer.parseInt(buffer.getText().toString().trim());
             long dMin = Long.parseLong(delayMin.getText().toString().trim());
             long dMax = Long.parseLong(delayMax.getText().toString().trim());
@@ -165,7 +200,8 @@ final class SettingsTab implements HubActivity.Tab {
                     new QuietHours.Config(from, Clock.endAfter(from, to), minH, maxH), old.serverSpeed);
             a.getSharedPreferences(AutomationSettings.PREFS, Context.MODE_PRIVATE).edit()
                     .putString(AutomationSettings.KEY, AutomationSettings.toJson(c)).apply();
-            p.edit().putInt(ActionSender.KEY_PAUSE_MIN, pauseMin).apply();
+            p.edit().putInt(ActionSender.KEY_PAUSE_MIN, pauseMin).putInt(EscapePlanner.KEY_LEAD_MIN, lead)
+                    .putInt(EscapePlanner.KEY_MIN_ATTACK, minAttack).apply();
             Toast.makeText(a, "Saved", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             String why = e instanceof IllegalArgumentException && e.getMessage() != null && !(e instanceof NumberFormatException)
