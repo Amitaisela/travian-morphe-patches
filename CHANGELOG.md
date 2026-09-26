@@ -1,3 +1,9 @@
+## [1.26.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.25.1...v1.26.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** home-screen widget ([faa7776](https://github.com/Amitaisela/travian-morphe-patches/commit/faa7776bb14ef41327506f737f2aac5826de5604))
+
 ## [1.25.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.25.0...v1.25.1) (2026-09-26)
 
 ### 🐛 Bug Fixes
