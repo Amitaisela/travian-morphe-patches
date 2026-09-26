@@ -707,7 +707,7 @@ public class NotifierWorker extends Worker {
         midnight.set(java.util.Calendar.MILLISECOND, 0);
         boolean quiet = QuietHours.isQuiet(cfg.quietHours, now, midnight.getTimeInMillis());
         for (PlayerBuildings.Village village : player.villages) {
-            if (!orders.getBoolean(BuildOrderActivity.autoKey(village.id), false)) {
+            if (!orders.getBoolean(BuildOrderStore.autoKey(village.id), false)) {
                 continue;
             }
             String idleKey = "idle_since_" + village.id;
@@ -724,7 +724,7 @@ public class NotifierWorker extends Worker {
                     VillageResources.find(stocks, village.id), queue, cfg, quiet, now, idleSince);
             String notes = android.text.TextUtils.join("; ", out.notes);
             orders.edit().putString(BuildOrderStore.key(village.id), BuildOrderStore.toJson(out.queue))
-                    .putString(BuildOrderActivity.notesKey(village.id),
+                    .putString(BuildOrderStore.notesKey(village.id),
                             java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(new java.util.Date(now))
                                     + ": " + (notes.isEmpty() ? "nothing to do" : notes))
                     .apply();
@@ -736,7 +736,7 @@ public class NotifierWorker extends Worker {
             long until = orders.getLong(failKey + "_until", 0);
             String label = GameData.buildingName(out.fire.typeId) + " to " + out.fire.toLevel;
             if (now < until) {
-                orders.edit().putString(BuildOrderActivity.notesKey(village.id), label + ": the game refused it, trying "
+                orders.edit().putString(BuildOrderStore.notesKey(village.id), label + ": the game refused it, trying "
                         + "again at " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT)
                         .format(new java.util.Date(until))).apply();
                 continue;
@@ -750,7 +750,7 @@ public class NotifierWorker extends Worker {
                 } else if ("FAILED".equals(r.outcome)) {
                     orders.edit().putInt(failKey, failures + 1)
                             .putLong(failKey + "_until", now + Backoff.delayMs(failures + 1))
-                            .putString(BuildOrderActivity.notesKey(village.id), label + ": the game said no ("
+                            .putString(BuildOrderStore.notesKey(village.id), label + ": the game said no ("
                                     + r.describe() + ")").apply();
                 } else if ("SENT".equals(r.outcome)) {
                     orders.edit().remove(failKey).remove(failKey + "_until").apply();

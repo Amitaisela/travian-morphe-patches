@@ -13,7 +13,7 @@ import java.util.List;
 final class DataProbe {
 
     /** Set when the probe starts, so it never runs a second time. */
-    static final String KEY_DONE = "data_probe_done_v1";
+    static final String KEY_DONE = "data_probe_done_v2";
     /** Longest slice of one response that is logged. */
     static final int MAX_LOGGED_CHARS = 16000;
     /** Android cuts a log line near 4 KB, so long text is logged in pieces of this size. */

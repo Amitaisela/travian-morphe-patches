@@ -10,7 +10,7 @@ import java.util.List;
  * The build order the user set for one village: an ordered list of "upgrade this building to this
  * level" entries. Nothing here fires an action; a later step reads this list and decides when to.
  * Pure logic (no Android APIs) so the list encoding can be checked against sample data off-device;
- * BuildOrderActivity does the actual SharedPreferences reads and writes using these constants and
+ * The Village tab and the worker do the actual SharedPreferences reads and writes using these constants and
  * (de)serializers.
  */
 final class BuildOrderStore {
@@ -42,6 +42,16 @@ final class BuildOrderStore {
             return GameData.buildingName(buildingTypeId) + (slotId > 0 ? " (slot " + slotId + ")" : "")
                     + " to level " + targetLevel;
         }
+    }
+
+    /** Per-village "build the queue automatically" switch. */
+    static String autoKey(String villageId) {
+        return "auto_" + villageId;
+    }
+
+    /** The worker's latest status line for a village's queue. */
+    static String notesKey(String villageId) {
+        return "notes_" + villageId;
     }
 
     /** The SharedPreferences key a village's order is stored under. */
