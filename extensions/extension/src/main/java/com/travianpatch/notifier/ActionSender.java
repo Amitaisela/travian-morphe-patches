@@ -35,10 +35,13 @@ final class ActionSender {
 
     static ActionClient.Settings settings(Context ctx) {
         SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        AutomationSettings.Config timing = AutomationSettings.fromJson(ctx.getSharedPreferences(
+                AutomationSettings.PREFS, Context.MODE_PRIVATE).getString(AutomationSettings.KEY, null));
         return new ActionClient.Settings(p.getBoolean(KEY_MASTER, ActionClient.DEFAULT_SETTINGS.masterOn),
                 p.getBoolean(KEY_DRY_RUN, ActionClient.DEFAULT_SETTINGS.dryRun),
                 p.getBoolean(KEY_PAUSE_ON, ActionClient.DEFAULT_SETTINGS.attackPauseOn),
-                p.getInt(KEY_PAUSE_MIN, ActionClient.DEFAULT_SETTINGS.attackPauseMinutes));
+                p.getInt(KEY_PAUSE_MIN, ActionClient.DEFAULT_SETTINGS.attackPauseMinutes),
+                QuietHours.isQuietNow(timing.quietHours, System.currentTimeMillis()));
     }
 
     /** From a screen tap: uses the session the background check cached (about 2 hours). */
@@ -206,6 +209,7 @@ final class ActionSender {
         in.attackPauseOn = settings.attackPauseOn;
         in.attackPauseMinutes = settings.attackPauseMinutes;
         in.passesAttackPause = TroopSend.ESCAPE_KIND.equals(action.kind);
+        in.quietNow = settings.quietNow;
         in.dedupeKey = action.dedupeKey;
         in.recentKeys = recent;
         ActionGuard.Verdict v = ActionGuard.check(in);

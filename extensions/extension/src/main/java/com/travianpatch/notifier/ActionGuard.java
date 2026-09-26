@@ -36,6 +36,8 @@ final class ActionGuard {
         int attackPauseMinutes;
         /** Troop escape: it exists to act while an attack is coming, so the attack pause doesn't stop it. */
         boolean passesAttackPause;
+        /** Inside the user's quiet hours (Auto-build timing): every automatic action waits, escape included. */
+        boolean quietNow;
         String dedupeKey;
         Map<String, Long> recentKeys;
     }
@@ -59,6 +61,9 @@ final class ActionGuard {
         }
         if (in.automated && !in.masterOn) {
             return new Verdict(false, "automation is off");
+        }
+        if (in.automated && in.quietNow) {
+            return new Verdict(false, "quiet hours (Settings → Auto-build timing)");
         }
         if (in.automated && !in.passesAttackPause && in.attackPauseOn && in.nextAttackLandingMs > 0
                 && in.nextAttackLandingMs - in.nowMs < in.attackPauseMinutes * 60_000L) {

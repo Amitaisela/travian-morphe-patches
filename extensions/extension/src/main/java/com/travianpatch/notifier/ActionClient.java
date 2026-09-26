@@ -55,16 +55,23 @@ final class ActionClient {
         final boolean dryRun;
         final boolean attackPauseOn;
         final int attackPauseMinutes;
+        /** Inside the quiet hours of Settings → Auto-build timing: no automatic action of any kind goes out. */
+        final boolean quietNow;
 
         Settings(boolean masterOn, boolean dryRun, int attackPauseMinutes) {
             this(masterOn, dryRun, true, attackPauseMinutes);
         }
 
         Settings(boolean masterOn, boolean dryRun, boolean attackPauseOn, int attackPauseMinutes) {
+            this(masterOn, dryRun, attackPauseOn, attackPauseMinutes, false);
+        }
+
+        Settings(boolean masterOn, boolean dryRun, boolean attackPauseOn, int attackPauseMinutes, boolean quietNow) {
             this.masterOn = masterOn;
             this.dryRun = dryRun;
             this.attackPauseOn = attackPauseOn;
             this.attackPauseMinutes = attackPauseMinutes;
+            this.quietNow = quietNow;
         }
     }
 
@@ -198,6 +205,7 @@ final class ActionClient {
         in.attackPauseOn = settings.attackPauseOn;
         in.attackPauseMinutes = settings.attackPauseMinutes;
         in.passesAttackPause = TroopSend.ESCAPE_KIND.equals(action.kind);
+        in.quietNow = settings.quietNow;
         in.dedupeKey = action.dedupeKey;
         in.recentKeys = recentKeys;
         ActionGuard.Verdict verdict = ActionGuard.check(in);

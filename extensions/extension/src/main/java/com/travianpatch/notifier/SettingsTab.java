@@ -133,7 +133,7 @@ final class SettingsTab implements HubActivity.Tab {
                 + "away when the attack lands, and they come back by themselves. The game's own travel time is "
                 + "checked first: an oasis too close to keep them away past the last attack of the wave is skipped. "
                 + "Attack power is the game's total for all attacks on the village (0 = any attack). Needs "
-                + "Automatic actions on; Practice mode applies. Numbers are saved with Save below."));
+                + "Automatic actions on; Practice mode and quiet hours apply. Numbers are saved with Save below."));
         col.addView(esc, UiKit.cardParams(a));
 
         AutomationSettings.Config c = AutomationSettings.fromJson(a.getSharedPreferences(AutomationSettings.PREFS,
@@ -152,8 +152,9 @@ final class SettingsTab implements HubActivity.Tab {
         quietMinH = number(fmtHours(c.quietHours.minDurationMin));
         quietMaxH = number(fmtHours(c.quietHours.maxDurationMin));
         t.addView(range("and last", quietMinH, quietMaxH, "hours"));
-        t.addView(UiKit.muted(a, "Nothing is built automatically during quiet hours. The exact start and length "
-                + "change a little every day."));
+        t.addView(UiKit.muted(a, "Nothing automatic happens during quiet hours: no auto-build, celebrations, troop "
+                + "escape or Silver bids and sales (your own taps still work). The exact start and length change a "
+                + "little every day."));
         LinearLayout.LayoutParams bp = full();
         bp.topMargin = UiKit.dp(a, 12);
         t.addView(UiKit.primaryButton(a, "Save", new View.OnClickListener() {
