@@ -1,3 +1,9 @@
+## [1.20.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.19.0...v1.20.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** real village map and step-by-step game actions ([a38c6e9](https://github.com/Amitaisela/travian-morphe-patches/commit/a38c6e9ec96f9aed128a6846ac9f024d8730a0de))
+
 ## [1.19.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.18.0...v1.19.0) (2026-09-26)
 
 ### ✨ New Features
