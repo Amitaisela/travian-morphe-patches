@@ -55,8 +55,22 @@ final class SettingsTab implements HubActivity.Tab {
         card.addView(dry, full());
         card.addView(UiKit.muted(a, "On: nothing reaches the game; Activity shows what would have been sent."));
         card.addView(UiKit.divider(a), gap());
+        Switch pauseOn = UiKit.accentSwitch(a, "Pause when an attack is coming", s.attackPauseOn);
+        card.addView(pauseOn, full());
         pause = number(String.valueOf(s.attackPauseMinutes));
-        card.addView(line("Pause automation when an attack lands within", pause, "min"));
+        final View pauseLine = line("Pause automation when an attack lands within", pause, "min");
+        pause.setEnabled(s.attackPauseOn);
+        pauseLine.setAlpha(s.attackPauseOn ? 1f : 0.4f);
+        pauseOn.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                p.edit().putBoolean(ActionSender.KEY_PAUSE_ON, on).apply();
+                pause.setEnabled(on);
+                pauseLine.setAlpha(on ? 1f : 0.4f);
+            }
+        });
+        card.addView(pauseLine);
+        card.addView(UiKit.muted(a, "Off: attacks never stop auto-build. The minutes are saved with Save below."));
         col.addView(card, UiKit.cardParams(a));
 
         AutomationSettings.Config c = AutomationSettings.fromJson(a.getSharedPreferences(AutomationSettings.PREFS,

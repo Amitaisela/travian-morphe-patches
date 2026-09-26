@@ -44,9 +44,44 @@ final class BuildOrderStore {
         }
     }
 
+    /** The highest level queued for this building (same type and slot; slot 0 = a new one); 0 if none. */
+    static int plannedLevel(List<Entry> order, int typeId, int slotId) {
+        int best = 0;
+        for (Entry e : order) {
+            if (e.buildingTypeId == typeId && e.slotId == slotId && e.targetLevel > best) {
+                best = e.targetLevel;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Takes one level off what is queued for this building: target 3 becomes 2, and the entry goes away
+     * once its target is no higher than fromLevel (what the village already has). Returns true if changed.
+     */
+    static boolean removeOneLevel(List<Entry> order, int typeId, int slotId, int fromLevel) {
+        for (int i = order.size() - 1; i >= 0; i--) {
+            Entry e = order.get(i);
+            if (e.buildingTypeId == typeId && e.slotId == slotId) {
+                if (e.targetLevel - 1 <= fromLevel) {
+                    order.remove(i);
+                } else {
+                    order.set(i, new Entry(typeId, e.targetLevel - 1, slotId));
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Per-village "build the queue automatically" switch. */
     static String autoKey(String villageId) {
         return "auto_" + villageId;
+    }
+
+    /** Per-village "build a field and a building at the same time" switch (Romans only; on unless turned off). */
+    static String parallelKey(String villageId) {
+        return "parallel_" + villageId;
     }
 
     /** The worker's latest status line for a village's queue. */

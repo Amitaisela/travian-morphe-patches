@@ -30,20 +30,27 @@ final class ActionClient {
         }
     }
 
-    /** The user's switches: master automation on/off, practice mode (nothing sent), attack pause window. */
+    /** The user's switches: master automation on/off, practice mode (nothing sent), attack pause on/off and window. */
     static final class Settings {
         final boolean masterOn;
         final boolean dryRun;
+        final boolean attackPauseOn;
         final int attackPauseMinutes;
 
         Settings(boolean masterOn, boolean dryRun, int attackPauseMinutes) {
+            this(masterOn, dryRun, true, attackPauseMinutes);
+        }
+
+        Settings(boolean masterOn, boolean dryRun, boolean attackPauseOn, int attackPauseMinutes) {
             this.masterOn = masterOn;
             this.dryRun = dryRun;
+            this.attackPauseOn = attackPauseOn;
             this.attackPauseMinutes = attackPauseMinutes;
         }
     }
 
-    static final Settings DEFAULT_SETTINGS = new Settings(false, true, 10);
+    /** The attack pause is off until the user turns it on (their choice, 2026-09-26). */
+    static final Settings DEFAULT_SETTINGS = new Settings(false, true, false, 10);
 
     /** Attack data older than this (or never read) counts as "an attack may land now" for automatic actions. */
     static final long ATTACK_DATA_MAX_AGE_MS = 15 * 60_000L;
@@ -95,6 +102,7 @@ final class ActionClient {
         in.dryRun = settings.dryRun;
         in.nowMs = nowMs;
         in.nextAttackLandingMs = nextAttackLandingMs;
+        in.attackPauseOn = settings.attackPauseOn;
         in.attackPauseMinutes = settings.attackPauseMinutes;
         in.dedupeKey = action.dedupeKey;
         in.recentKeys = recentKeys;

@@ -4,34 +4,47 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.Gravity;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.CompoundButton;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * The Village tab: everything for one village on one screen - what is building now, the Auto-build switch
- * with its latest status, the queue, and what can be built (Build now or add to the queue). All numbers
- * come from the game's own data saved by the background check.
+ * with its latest status, the queue (with when its next entry starts), and what can be built (a searchable
+ * list, or a map of the village's slots). All numbers come from the game's own data saved by the
+ * background check.
  */
 final class VillageTab implements HubActivity.Tab {
 
     private static final String KEY_SELECTED = "selected_village";
     private static final String KEY_FILTER = "build_filter";
+    private static final int FILTER_MAP = 3;
+    /** Row groups in the Build list; BLOCKED rows (the game says no) only show while searching. */
+    private static final int CAT_BUILDINGS = 0, CAT_FIELDS = 1, CAT_NEW = 2, CAT_BLOCKED = 3;
 
     private final HubActivity a;
     private final List<TextView> countdowns = new ArrayList<TextView>();
     private final List<QueueView.Item> countdownItems = new ArrayList<QueueView.Item>();
+    /** The search text; kept on the tab so it survives the redraw after + or −. */
+    private String search = "";
 
     private List<VillageList.Entry> villages;
     private PlayerBuildings player;
@@ -89,7 +102,7 @@ final class VillageTab implements HubActivity.Tab {
         col.addView(UiKit.section(a, "Auto-build"));
         col.addView(autoCard(autoOn), UiKit.cardParams(a));
         col.addView(UiKit.section(a, "Queue"));
-        col.addView(queueCard(), UiKit.cardParams(a));
+        col.addView(queueCard(autoOn), UiKit.cardParams(a));
         col.addView(UiKit.section(a, "Build"));
         col.addView(buildSection());
         return col;
@@ -152,10 +165,8 @@ final class VillageTab implements HubActivity.Tab {
     private View buildingNowCard() {
         LinearLayout card = UiKit.card(a);
         String title = currentVillageTitle();
-        String json = a.getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE)
-                .getString(NotifierWorker.STATE_KEY, null);
         int shown = 0;
-        for (QueueView.Group g : QueueView.parse(json)) {
+        for (QueueView.Group g : QueueView.parse(stateJson())) {
             if (title != null && !title.equals(g.title)) {
                 continue;
             }
@@ -194,27 +205,41 @@ final class VillageTab implements HubActivity.Tab {
                 a.redraw();
             }
         });
-        card.addView(toggle, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT));
+        card.addView(toggle, fullWidth());
         String notes = orders().getString(BuildOrderStore.notesKey(villageId), null);
         TextView status = UiKit.muted(a, autoOn ? (notes == null ? "Starts at the next check (within 5 minutes)." : notes)
                 : "Off. The queue waits until you switch this on; ▶ still builds right away.");
         status.setPadding(0, UiKit.dp(a, 6), 0, 0);
         card.addView(status);
+        if (isRoman()) {
+            card.addView(UiKit.divider(a), gapParams());
+            Switch both = UiKit.accentSwitch(a, "Build a field and a building at the same time", parallel());
+            both.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(CompoundButton b, boolean checked) {
+                    orders().edit().putBoolean(BuildOrderStore.parallelKey(villageId), checked).apply();
+                    a.redraw();
+                }
+            });
+            card.addView(both, fullWidth());
+            card.addView(UiKit.muted(a, "Romans only. On: the first field and the first building in the queue each "
+                    + "start as soon as their own line is free."));
+        }
         return card;
     }
 
-    private View queueCard() {
+    private View queueCard(boolean autoOn) {
         LinearLayout card = UiKit.card(a);
         if (order.isEmpty()) {
             card.addView(UiKit.muted(a, "Empty. Tap + next to anything under Build to queue it."));
             return card;
         }
+        addNextLines(card, autoOn);
         QueueEstimate.Result total = QueueEstimate.totalCost(rules, village(), order);
         TextView sum = UiKit.muted(a, "Total " + Costs.shortLine(total.totalCost.lumber, total.totalCost.clay,
                 total.totalCost.iron, total.totalCost.crop)
                 + (total.unknownCount > 0 ? "  (+" + total.unknownCount + " not known)" : ""));
-        sum.setPadding(0, 0, 0, UiKit.dp(a, 4));
+        sum.setPadding(0, UiKit.dp(a, 4), 0, UiKit.dp(a, 4));
         card.addView(sum);
         for (int i = 0; i < order.size(); i++) {
             final int index = i;
@@ -242,6 +267,84 @@ final class VillageTab implements HubActivity.Tab {
         return card;
     }
 
+    /** "Next: X → 3, starts in about …" per build line, with a Build now button when it can start right away. */
+    private void addNextLines(LinearLayout card, boolean autoOn) {
+        PlayerBuildings.Village village = village();
+        if (rules == null || village == null) {
+            return;
+        }
+        boolean parallel = parallel();
+        AutomationSettings.Config cfg = AutomationSettings.fromJson(a.getSharedPreferences(AutomationSettings.PREFS,
+                Context.MODE_PRIVATE).getString(AutomationSettings.KEY, null));
+        String title = currentVillageTitle();
+        String json = stateJson();
+        long fieldFree = NextBuild.lineFreeAt(json, title, village, parallel, true);
+        long buildingFree = NextBuild.lineFreeAt(json, title, village, parallel, false);
+        SharedPreferences o = orders();
+        long fieldIdle = autoOn ? o.getLong("idle_since_" + villageId + (parallel ? "_field" : ""), 0) : 0;
+        long buildingIdle = autoOn ? o.getLong("idle_since_" + villageId + (parallel ? "_building" : ""), 0) : 0;
+        long now = System.currentTimeMillis();
+        List<NextBuild.Estimate> next = NextBuild.upcoming(rules, player.tribeId, village,
+                VillageResources.find(resources, villageId), order, cfg, parallel, fieldFree, buildingFree,
+                fieldIdle, buildingIdle, now);
+        if (next.isEmpty()) {
+            card.addView(UiKit.muted(a, "Nothing in the queue can start: see the Auto-build status above."));
+            return;
+        }
+        for (final NextBuild.Estimate est : next) {
+            String name = GameData.buildingName(est.row.typeId) + (est.row.slotId > 0 && BuildChoices.isField(est.row.typeId)
+                    ? " · slot " + est.row.slotId : "");
+            LinearLayout row = UiKit.listRow(a, "Next: " + name + " → " + est.row.toLevel, nextLine(est, autoOn, now));
+            if (est.canStartNow) {
+                UiKit.addPill(row, UiKit.pill(a, "Build now", true, new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        confirmBuild(est.row);
+                    }
+                }));
+            }
+            card.addView(row);
+        }
+        card.addView(UiKit.divider(a));
+    }
+
+    private String nextLine(NextBuild.Estimate est, boolean autoOn, long now) {
+        StringBuilder sb = new StringBuilder();
+        if (!autoOn) {
+            sb.append("Auto-build is off, so it won't start by itself.\n");
+        } else if (est.startEarliestMs == NextBuild.UNKNOWN) {
+            sb.append("Start time not known yet.\n");
+        } else if (est.startLatestMs <= now) {
+            sb.append("Starts at the next check (about every 5 min).\n");
+        } else if (est.startEarliestMs == est.startLatestMs || est.startLatestMs - est.startEarliestMs < 60_000L) {
+            sb.append("Starts in about ").append(AlertStatus.duration(est.startLatestMs - now))
+                    .append(" (").append(clock(est.startLatestMs)).append(")\n");
+        } else {
+            sb.append("Starts in ").append(AlertStatus.duration(Math.max(0, est.startEarliestMs - now))).append(" to ")
+                    .append(AlertStatus.duration(est.startLatestMs - now)).append(" (")
+                    .append(clock(est.startEarliestMs)).append("–").append(clock(est.startLatestMs)).append(")\n");
+        }
+        List<String> why = new ArrayList<String>();
+        if (est.lineFreeAtMs == NextBuild.UNKNOWN) {
+            why.add("something is building (end time not known)");
+        } else if (est.lineFreeAtMs > now) {
+            why.add("current build ends in " + AlertStatus.duration(est.lineFreeAtMs - now));
+        }
+        if (est.resourcesAtMs == NextBuild.UNKNOWN) {
+            why.add("resources: production won't cover it");
+        } else if (est.resourcesAtMs > now) {
+            why.add("resources in " + AlertStatus.duration(est.resourcesAtMs - now));
+        }
+        if (autoOn && est.startEarliestMs != NextBuild.UNKNOWN && est.startLatestMs > now) {
+            why.add("plus the random wait");
+        }
+        sb.append(why.isEmpty() ? "Ready." : "Waiting: " + android.text.TextUtils.join(", ", why) + ".");
+        if (!est.canStartNow) {
+            sb.append("\nBuild now shows up once the line is free and the resources are there.");
+        }
+        return sb.toString();
+    }
+
     private View buildSection() {
         LinearLayout col = new LinearLayout(a);
         col.setOrientation(LinearLayout.VERTICAL);
@@ -251,54 +354,140 @@ final class VillageTab implements HubActivity.Tab {
             return col;
         }
         int filter = orders().getInt(KEY_FILTER, 0);
-        col.addView(UiKit.segments(a, new String[]{"Buildings", "Fields", "New"}, filter, new UiKit.OnPick() {
+        col.addView(UiKit.segments(a, new String[]{"Buildings", "Fields", "New", "Map"}, filter, new UiKit.OnPick() {
             @Override
             public void picked(int index) {
                 orders().edit().putInt(KEY_FILTER, index).apply();
                 a.redraw();
             }
         }), UiKit.cardParams(a));
-        List<BuildChoices.Row> rows = new ArrayList<BuildChoices.Row>();
-        for (BuildChoices.Row r : BuildChoices.list(rules, player.tribeId, village)) {
-            if (r.verdict.answer == BuildOptions.Answer.NO) {
-                continue;
-            }
-            boolean field = r.typeId >= 1 && r.typeId <= 4;
-            boolean isNew = r.slotId == 0;
-            if ((filter == 0 && !field && !isNew) || (filter == 1 && field && !isNew) || (filter == 2 && isNew)) {
-                rows.add(r);
-            }
+        if (filter == FILTER_MAP) {
+            col.addView(mapView(village));
+            return col;
         }
-        if (filter == 1) {
-            Collections.sort(rows, new Comparator<BuildChoices.Row>() {
-                @Override
-                public int compare(BuildChoices.Row x, BuildChoices.Row y) {
-                    return x.fromLevel != y.fromLevel ? x.fromLevel - y.fromLevel : x.slotId - y.slotId;
-                }
-            });
-        }
-        LinearLayout card = UiKit.card(a);
-        if (rows.isEmpty()) {
-            card.addView(UiKit.muted(a, "Nothing here can be built right now, going by the game's rules."));
-        }
+
+        final EditText box = new EditText(a);
+        box.setHint("Search, e.g. wall, granary");
+        box.setSingleLine(true);
+        box.setTextColor(UiKit.textColor(a));
+        box.setHintTextColor(UiKit.mutedColor(a));
+        box.setText(search);
+        col.addView(box, UiKit.cardParams(a));
+
+        final LinearLayout card = UiKit.card(a);
+        final List<View> rowViews = new ArrayList<View>();
+        final List<String> rowText = new ArrayList<String>();
+        final List<Integer> rowCat = new ArrayList<Integer>();
         VillageResources.Entry stock = VillageResources.find(resources, villageId);
-        for (int i = 0; i < rows.size(); i++) {
-            if (i > 0) {
-                card.addView(UiKit.divider(a));
-            }
-            card.addView(choiceRow(rows.get(i), stock));
+        for (BuildChoices.Row r : sortedChoices(village)) {
+            int cat = category(r);
+            View v = cat == CAT_BLOCKED ? blockedRow(r) : choiceRow(r, stock);
+            LinearLayout wrap = new LinearLayout(a);
+            wrap.setOrientation(LinearLayout.VERTICAL);
+            wrap.addView(UiKit.divider(a));
+            wrap.addView(v);
+            card.addView(wrap);
+            rowViews.add(wrap);
+            rowText.add(GameData.buildingName(r.typeId).toLowerCase(Locale.US));
+            rowCat.add(cat);
         }
+        final TextView empty = UiKit.muted(a, "");
+        card.addView(empty);
+        final int shownFilter = filter;
+        final Runnable apply = new Runnable() {
+            @Override
+            public void run() {
+                String q = search.trim().toLowerCase(Locale.US);
+                boolean first = true;
+                for (int i = 0; i < rowViews.size(); i++) {
+                    boolean show = q.isEmpty() ? rowCat.get(i) == shownFilter : rowText.get(i).contains(q);
+                    View wrap = rowViews.get(i);
+                    wrap.setVisibility(show ? View.VISIBLE : View.GONE);
+                    if (show) {
+                        ((LinearLayout) wrap).getChildAt(0).setVisibility(first ? View.GONE : View.VISIBLE);
+                        first = false;
+                    }
+                }
+                empty.setText(!first ? "" : q.isEmpty() ? "Nothing here can be built right now, going by the game's rules."
+                        : "No building matches \"" + search.trim() + "\".");
+                empty.setVisibility(first ? View.VISIBLE : View.GONE);
+            }
+        };
+        apply.run();
+        box.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                search = s.toString();
+                apply.run();
+            }
+        });
         col.addView(card, UiKit.cardParams(a));
         return col;
     }
 
+    /** Every row the Build list can show: buildings, then fields (lowest level first), then new, then blocked. */
+    private List<BuildChoices.Row> sortedChoices(PlayerBuildings.Village village) {
+        List<BuildChoices.Row> rows = new ArrayList<BuildChoices.Row>(BuildChoices.list(rules, player.tribeId, village));
+        Collections.sort(rows, new Comparator<BuildChoices.Row>() {
+            @Override
+            public int compare(BuildChoices.Row x, BuildChoices.Row y) {
+                int cx = category(x), cy = category(y);
+                if (cx != cy) {
+                    return cx - cy;
+                }
+                if (cx == CAT_FIELDS) {
+                    return x.fromLevel != y.fromLevel ? x.fromLevel - y.fromLevel : x.slotId - y.slotId;
+                }
+                return 0; // keep the game's order otherwise (the sort is stable)
+            }
+        });
+        return rows;
+    }
+
+    private static int category(BuildChoices.Row r) {
+        if (r.verdict.answer == BuildOptions.Answer.NO) {
+            return CAT_BLOCKED;
+        }
+        return r.slotId == 0 ? CAT_NEW : BuildChoices.isField(r.typeId) ? CAT_FIELDS : CAT_BUILDINGS;
+    }
+
+    /** A row the game says no to; shown only in search results, with the game's reason. */
+    private View blockedRow(BuildChoices.Row r) {
+        String name = GameData.buildingName(r.typeId);
+        String title = r.slotId == 0 ? name + "  · new" : name + "   " + r.fromLevel;
+        LinearLayout row = UiKit.listRow(a, title, "Can't build: " + r.verdict.reason);
+        row.setAlpha(0.55f);
+        return row;
+    }
+
+    /**
+     * One buildable row. When the queue already takes this building higher, the title shows where it is
+     * going ("1 ⇢ 3") and the + pill names the level it would add next ("+4"); − takes one level back off.
+     */
     private View choiceRow(final BuildChoices.Row r, VillageResources.Entry stock) {
         String name = GameData.buildingName(r.typeId);
-        boolean field = r.typeId >= 1 && r.typeId <= 4;
-        String title = r.slotId == 0 ? name + "  · new" : name + (field ? " · slot " + r.slotId : "")
-                + "   " + r.fromLevel + " → " + r.toLevel;
+        boolean field = BuildChoices.isField(r.typeId);
+        final int planned = BuildOrderStore.plannedLevel(order, r.typeId, r.slotId);
+        boolean queued = planned > r.fromLevel;
+        String head = r.slotId == 0 ? name + "  · new" : name + (field ? " · slot " + r.slotId : "");
+        String title = head + "   " + r.fromLevel + (queued ? " ⇢ " + planned : " → " + r.toLevel);
+        BuildingRules.Rule rule = rules.find(r.typeId);
+        final int adds = queued ? planned + 1 : r.toLevel;
+        boolean atMax = rule != null && adds > rule.maxLevel;
         String sub;
-        if (r.next == null) {
+        if (queued) {
+            BuildingRules.Level more = rule == null ? null : rule.levelData(adds);
+            sub = "In your queue up to " + planned + (atMax ? " (the game's maximum)"
+                    : more == null ? "" : "\n+ adds " + adds + ": " + Costs.shortLine(more.lumber, more.clay, more.iron, more.crop));
+        } else if (r.next == null) {
             sub = "cost not known";
         } else {
             sub = Costs.shortLine(r.next.lumber, r.next.clay, r.next.iron, r.next.crop);
@@ -322,25 +511,230 @@ final class VillageTab implements HubActivity.Tab {
                 }
             }));
         }
-        UiKit.addPill(row, UiKit.pill(a, "+", false, new View.OnClickListener() {
+        if (queued) {
+            UiKit.addPill(row, UiKit.pill(a, "−", false, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (BuildOrderStore.removeOneLevel(order, r.typeId, r.slotId, r.fromLevel)) {
+                        saveOrder();
+                    }
+                }
+            }));
+        }
+        if (!atMax) {
+            UiKit.addPill(row, UiKit.pill(a, "+" + adds, false, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    addToQueue(r);
+                }
+            }));
+        }
+        return row;
+    }
+
+    // ------------------------------------------------------------------ map
+
+    /**
+     * The village's slots as two simple grids, numbered with the game's slot ids: fields 1-18, then the
+     * village (19-38, rally point 39, wall 40, any extra slots the game lists). Each tile shows what stands
+     * there and its level; a queued target shows as "→ N". Tap a tile to build or queue on that slot.
+     */
+    private View mapView(PlayerBuildings.Village village) {
+        LinearLayout col = new LinearLayout(a);
+        col.setOrientation(LinearLayout.VERTICAL);
+        List<PlayerBuildings.Slot> fields = new ArrayList<PlayerBuildings.Slot>();
+        List<PlayerBuildings.Slot> center = new ArrayList<PlayerBuildings.Slot>();
+        List<PlayerBuildings.Slot> sorted = new ArrayList<PlayerBuildings.Slot>(village.slots);
+        Collections.sort(sorted, new Comparator<PlayerBuildings.Slot>() {
+            @Override
+            public int compare(PlayerBuildings.Slot x, PlayerBuildings.Slot y) {
+                return x.slotId - y.slotId;
+            }
+        });
+        for (PlayerBuildings.Slot s : sorted) {
+            (s.slotId <= 18 ? fields : center).add(s);
+        }
+        LinearLayout f = UiKit.card(a);
+        f.addView(UiKit.text(a, "Fields", 15, true, UiKit.textColor(a)));
+        f.addView(grid(fields, 3, village));
+        col.addView(f, UiKit.cardParams(a));
+        LinearLayout c = UiKit.card(a);
+        c.addView(UiKit.text(a, "Village", 15, true, UiKit.textColor(a)));
+        c.addView(grid(center, 4, village));
+        TextView note = UiKit.muted(a, "Numbers are the game's slot numbers. The tiles are a simple grid, "
+                + "not the game's own picture. Tap a tile to build or queue there.");
+        note.setPadding(0, UiKit.dp(a, 8), 0, 0);
+        c.addView(note);
+        col.addView(c, UiKit.cardParams(a));
+        return col;
+    }
+
+    private View grid(List<PlayerBuildings.Slot> slots, int columns, PlayerBuildings.Village village) {
+        LinearLayout rowsCol = new LinearLayout(a);
+        rowsCol.setOrientation(LinearLayout.VERTICAL);
+        rowsCol.setPadding(0, UiKit.dp(a, 6), 0, 0);
+        LinearLayout line = null;
+        for (int i = 0; i < slots.size(); i++) {
+            if (i % columns == 0) {
+                line = new LinearLayout(a);
+                line.setOrientation(LinearLayout.HORIZONTAL);
+                rowsCol.addView(line);
+            }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, UiKit.dp(a, 64), 1f);
+            int m = UiKit.dp(a, 3);
+            lp.setMargins(m, m, m, m);
+            line.addView(tile(slots.get(i), village), lp);
+        }
+        if (line != null) {
+            for (int i = slots.size() % columns; i > 0 && i < columns; i++) {
+                View spacer = new View(a);
+                line.addView(spacer, new LinearLayout.LayoutParams(0, UiKit.dp(a, 64), 1f));
+            }
+        }
+        return rowsCol;
+    }
+
+    private View tile(final PlayerBuildings.Slot s, PlayerBuildings.Village village) {
+        LinearLayout t = new LinearLayout(a);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setGravity(Gravity.CENTER);
+        int pad = UiKit.dp(a, 3);
+        t.setPadding(pad, pad, pad, pad);
+        android.graphics.drawable.GradientDrawable bg = UiKit.rounded(tileColor(s), 10, a);
+        if (s.isEmpty()) {
+            bg.setStroke(UiKit.dp(a, 1), UiKit.mutedColor(a), UiKit.dp(a, 4), UiKit.dp(a, 3));
+        }
+        t.setBackground(bg);
+        int gameQueued = village.queuedLevel(s.slotId);
+        int planned = s.isEmpty() ? 0 : BuildOrderStore.plannedLevel(order, s.typeId, s.slotId);
+        for (BuildOrderStore.Entry e : order) {
+            if (s.isEmpty() && e.slotId == s.slotId) {
+                planned = Math.max(planned, e.targetLevel);
+            }
+        }
+        String name = s.isEmpty() ? (s.slotId == BuildChoices.WALL_SLOT ? "Wall spot"
+                : s.slotId == BuildChoices.RALLY_POINT_SLOT ? "Rally spot" : "empty")
+                : GameData.buildingName(s.typeId);
+        String level = s.isEmpty() ? (planned > 0 ? "→ " + planned : "")
+                : "Lv " + s.level + (gameQueued > s.level ? " ⚒" + gameQueued : "")
+                + (planned > Math.max(s.level, gameQueued) ? " → " + planned : "");
+        TextView num = UiKit.text(a, String.valueOf(s.slotId), 10, false, UiKit.mutedColor(a));
+        TextView label = UiKit.text(a, name, 11, true, UiKit.textColor(a));
+        label.setGravity(Gravity.CENTER);
+        label.setMaxLines(2);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        t.addView(num);
+        t.addView(label);
+        if (level.length() > 0) {
+            t.addView(UiKit.text(a, level, 11, false, UiKit.accentText(a)));
+        }
+        t.setClickable(true);
+        t.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                addToQueue(r);
+                tapSlot(s);
             }
-        }));
-        return row;
+        });
+        return t;
+    }
+
+    private int tileColor(PlayerBuildings.Slot s) {
+        boolean dark = UiKit.dark(a);
+        switch (s.isEmpty() ? 0 : s.typeId) {
+            case 0:
+                return 0x00000000;
+            case 1: // woodcutter
+                return dark ? 0xFF2F3D22 : 0xFFDDE8CF;
+            case 2: // clay pit
+                return dark ? 0xFF4A2F22 : 0xFFF2D9C8;
+            case 3: // iron mine
+                return dark ? 0xFF33363B : 0xFFDDE0E4;
+            case 4: // cropland
+                return dark ? 0xFF4A4020 : 0xFFF5EAC2;
+            default:
+                return dark ? 0xFF2C2A28 : 0xFFEFEAE4;
+        }
+    }
+
+    /** A built slot: its upgrade row. An empty slot: pick which building goes there first. */
+    private void tapSlot(PlayerBuildings.Slot s) {
+        PlayerBuildings.Village village = village();
+        if (village == null) {
+            return;
+        }
+        if (!s.isEmpty()) {
+            BuildChoices.Row row = BuildQueueStep.rowForSlot(rules, player.tribeId, village, s.slotId, s.typeId);
+            if (row != null) {
+                slotDialog(row);
+            }
+            return;
+        }
+        final List<BuildChoices.Row> options = new ArrayList<BuildChoices.Row>();
+        List<String> labels = new ArrayList<String>();
+        for (BuildingRules.Rule rule : rules.rules) {
+            if (!BuildChoices.fitsSlot(rule, s.slotId)) {
+                continue;
+            }
+            BuildChoices.Row row = BuildQueueStep.rowForSlot(rules, player.tribeId, village, s.slotId, rule.type);
+            if (row == null || row.verdict.answer == BuildOptions.Answer.NO) {
+                continue;
+            }
+            options.add(row);
+            labels.add(GameData.buildingName(rule.type)
+                    + (row.verdict.answer == BuildOptions.Answer.UNKNOWN ? "  (can't be checked yet)" : ""));
+        }
+        if (options.isEmpty()) {
+            Toast.makeText(a, "Nothing can be built on slot " + s.slotId + " right now, going by the game's rules",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        new AlertDialog.Builder(a)
+                .setTitle("Slot " + s.slotId + ": build what?")
+                .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        slotDialog(options.get(which));
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void slotDialog(final BuildChoices.Row r) {
+        int planned = BuildOrderStore.plannedLevel(order, r.typeId, r.slotId);
+        final int adds = Math.max(planned, r.fromLevel) + 1;
+        BuildingRules.Rule rule = rules.find(r.typeId);
+        boolean atMax = rule != null && adds > rule.maxLevel;
+        String cost = r.next == null ? "cost not known" : Costs.shortLine(r.next.lumber, r.next.clay, r.next.iron, r.next.crop);
+        String msg = GameData.buildingName(r.typeId) + " on slot " + r.slotId + ", level " + r.fromLevel
+                + (planned > r.fromLevel ? " (queued to " + planned + ")" : "") + "\n\nNext level " + r.toLevel + ": " + cost
+                + (r.verdict.answer != BuildOptions.Answer.YES ? "\n\n" + r.verdict.reason : "");
+        AlertDialog.Builder b = new AlertDialog.Builder(a).setTitle("Slot " + r.slotId).setMessage(msg)
+                .setNegativeButton("Close", null);
+        if (!atMax) {
+            b.setNeutralButton("Queue " + adds, new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface d, int w) {
+                    addToQueue(r);
+                }
+            });
+        }
+        if (r.verdict.answer == BuildOptions.Answer.YES) {
+            b.setPositiveButton("Build now", new DialogInterface.OnClickListener() {
+                @Override
+                public void onClick(DialogInterface d, int w) {
+                    confirmBuild(r);
+                }
+            });
+        }
+        b.show();
     }
 
     // ------------------------------------------------------------------ actions
 
     /** Adds the next level after anything already queued for the same slot (or the same new building). */
     private void addToQueue(BuildChoices.Row r) {
-        int target = r.toLevel;
-        for (BuildOrderStore.Entry e : order) {
-            if (e.buildingTypeId == r.typeId && e.slotId == r.slotId && e.targetLevel >= target) {
-                target = e.targetLevel + 1;
-            }
-        }
+        int target = Math.max(r.toLevel, BuildOrderStore.plannedLevel(order, r.typeId, r.slotId) + 1);
         BuildingRules.Rule rule = rules.find(r.typeId);
         if (rule != null && target > rule.maxLevel) {
             Toast.makeText(a, "Already queued up to the game's maximum (" + rule.maxLevel + ")", Toast.LENGTH_SHORT).show();
@@ -402,7 +796,9 @@ final class VillageTab implements HubActivity.Tab {
     private void buildNow(final BuildChoices.Row r, final String label) {
         final String vid = villageId;
         PlayerBuildings.Village village = village();
-        final int slot = r.slotId > 0 ? r.slotId : (village == null ? 0 : BuildChoices.slotForNew(r.typeId, village));
+        BuildingRules.Rule rule = rules == null ? null : rules.find(r.typeId);
+        final int slot = r.slotId > 0 ? r.slotId
+                : (village == null || rule == null ? 0 : BuildChoices.slotForNew(rule, village));
         if (slot == 0) {
             Toast.makeText(a, "No free slot for it", Toast.LENGTH_SHORT).show();
             return;
@@ -437,6 +833,20 @@ final class VillageTab implements HubActivity.Tab {
         return player == null ? null : player.findVillage(villageId);
     }
 
+    private boolean isRoman() {
+        return player != null && player.tribeId == BuildChoices.ROMAN_TRIBE;
+    }
+
+    /** Romans with the "field and building at the same time" switch on (on unless turned off). */
+    private boolean parallel() {
+        return isRoman() && orders().getBoolean(BuildOrderStore.parallelKey(villageId), true);
+    }
+
+    private String stateJson() {
+        return a.getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE)
+                .getString(NotifierWorker.STATE_KEY, null);
+    }
+
     private String currentVillageTitle() {
         for (VillageList.Entry v : villages) {
             if (v.id.equals(villageId)) {
@@ -444,6 +854,23 @@ final class VillageTab implements HubActivity.Tab {
             }
         }
         return null;
+    }
+
+    private static String clock(long ms) {
+        return new SimpleDateFormat("HH:mm", Locale.US).format(new Date(ms));
+    }
+
+    private LinearLayout.LayoutParams fullWidth() {
+        return new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    private LinearLayout.LayoutParams gapParams() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
+                UiKit.dp(a, 1));
+        lp.topMargin = UiKit.dp(a, 10);
+        lp.bottomMargin = UiKit.dp(a, 10);
+        return lp;
     }
 
     private View message(String text) {

@@ -26,6 +26,7 @@ final class ActionSender {
     static final String PREFS = ActionLog.PREFS;
     static final String KEY_MASTER = "master_on";
     static final String KEY_DRY_RUN = "dry_run";
+    static final String KEY_PAUSE_ON = "attack_pause_on";
     static final String KEY_PAUSE_MIN = "attack_pause_minutes";
     private static final String KEY_RECENT = "recent_keys";
 
@@ -36,6 +37,7 @@ final class ActionSender {
         SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         return new ActionClient.Settings(p.getBoolean(KEY_MASTER, ActionClient.DEFAULT_SETTINGS.masterOn),
                 p.getBoolean(KEY_DRY_RUN, ActionClient.DEFAULT_SETTINGS.dryRun),
+                p.getBoolean(KEY_PAUSE_ON, ActionClient.DEFAULT_SETTINGS.attackPauseOn),
                 p.getInt(KEY_PAUSE_MIN, ActionClient.DEFAULT_SETTINGS.attackPauseMinutes));
     }
 
@@ -135,6 +137,7 @@ final class ActionSender {
         in.dryRun = settings.dryRun;
         in.nowMs = now;
         in.nextAttackLandingMs = nextAttack;
+        in.attackPauseOn = settings.attackPauseOn;
         in.attackPauseMinutes = settings.attackPauseMinutes;
         in.dedupeKey = action.dedupeKey;
         in.recentKeys = recent;

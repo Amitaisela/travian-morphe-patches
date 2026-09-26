@@ -710,18 +710,21 @@ public class NotifierWorker extends Worker {
             if (!orders.getBoolean(BuildOrderStore.autoKey(village.id), false)) {
                 continue;
             }
-            String idleKey = "idle_since_" + village.id;
-            long idleSince = orders.getLong(idleKey, 0);
-            if (!village.pending.isEmpty()) {
-                orders.edit().remove(idleKey).apply();
-            } else if (idleSince == 0) {
-                idleSince = now;
-                orders.edit().putLong(idleKey, now).apply();
+            boolean parallel = player.tribeId == BuildChoices.ROMAN_TRIBE
+                    && orders.getBoolean(BuildOrderStore.parallelKey(village.id), true);
+            long fieldIdle, buildingIdle;
+            if (parallel) {
+                fieldIdle = idleSince(orders, "idle_since_" + village.id + "_field",
+                        BuildQueueStep.laneBusy(village, true), now);
+                buildingIdle = idleSince(orders, "idle_since_" + village.id + "_building",
+                        BuildQueueStep.laneBusy(village, false), now);
+            } else {
+                fieldIdle = buildingIdle = idleSince(orders, "idle_since_" + village.id, !village.pending.isEmpty(), now);
             }
             List<BuildOrderStore.Entry> queue = BuildOrderStore.fromJson(
                     orders.getString(BuildOrderStore.key(village.id), null));
             BuildQueueStep.Outcome out = BuildQueueStep.next(rules, player.tribeId, village,
-                    VillageResources.find(stocks, village.id), queue, cfg, quiet, now, idleSince);
+                    VillageResources.find(stocks, village.id), queue, cfg, quiet, now, parallel, fieldIdle, buildingIdle);
             String notes = android.text.TextUtils.join("; ", out.notes);
             orders.edit().putString(BuildOrderStore.key(village.id), BuildOrderStore.toJson(out.queue))
                     .putString(BuildOrderStore.notesKey(village.id),
@@ -759,6 +762,20 @@ public class NotifierWorker extends Worker {
                 Log.w(TAG, "build queue send failed: " + e);
             }
         }
+    }
+
+    /** When a build line went idle (saved under key); cleared while the game is building in it. */
+    private static long idleSince(SharedPreferences orders, String key, boolean busy, long now) {
+        if (busy) {
+            orders.edit().remove(key).apply();
+            return 0;
+        }
+        long since = orders.getLong(key, 0);
+        if (since == 0) {
+            since = now;
+            orders.edit().putLong(key, now).apply();
+        }
+        return since;
     }
 
     private void checkExtras(OkHttpClient http, String gameworldHost) {

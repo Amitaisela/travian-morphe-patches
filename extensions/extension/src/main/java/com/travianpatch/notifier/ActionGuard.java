@@ -27,6 +27,8 @@ final class ActionGuard {
         boolean dryRun;
         long nowMs;
         long nextAttackLandingMs;
+        /** The user's "pause when an attack lands soon" switch; off means attacks never pause automation. */
+        boolean attackPauseOn;
         int attackPauseMinutes;
         String dedupeKey;
         Map<String, Long> recentKeys;
@@ -52,7 +54,7 @@ final class ActionGuard {
         if (in.automated && !in.masterOn) {
             return new Verdict(false, "automation is off");
         }
-        if (in.automated && in.nextAttackLandingMs > 0
+        if (in.automated && in.attackPauseOn && in.nextAttackLandingMs > 0
                 && in.nextAttackLandingMs - in.nowMs < in.attackPauseMinutes * 60_000L) {
             return new Verdict(false, "paused: an attack lands soon");
         }
