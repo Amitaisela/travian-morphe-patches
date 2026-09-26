@@ -1,3 +1,9 @@
+## [1.22.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.22.0...v1.22.1) (2026-09-26)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** send troops exactly like the game's rally point ([5e0fac1](https://github.com/Amitaisela/travian-morphe-patches/commit/5e0fac1bf6ec15340af8cdc15da16c929c5a90a8))
+
 ## [1.22.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.21.0...v1.22.0) (2026-09-26)
 
 ### ✨ New Features
