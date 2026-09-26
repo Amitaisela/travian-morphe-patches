@@ -699,7 +699,7 @@ public class NotifierWorker extends Worker {
     }
 
     /**
-     * One-off, read-only diagnostic for the next features (troops, farm lists, crop finder, Gold status):
+     * One-off, read-only diagnostic for the next features (celebrations, oases, troops, merchants, hero):
      * runs the queries in DataProbe once per install after a poll has seen a village and logs every raw
      * response. Nothing is shown on any screen and nothing is changed in the game.
      */
@@ -735,6 +735,12 @@ public class NotifierWorker extends Worker {
         List<String> pieces = DataProbe.split(cut(response, DataProbe.MAX_LOGGED_CHARS), DataProbe.LOG_PIECE);
         for (int k = 0; k < pieces.size(); k++) {
             Log.i(TAG, "DPROBE " + n + " part " + (k + 1) + "/" + pieces.size() + ": " + pieces.get(k));
+            try {
+                Thread.sleep(50); // the round-2 probe lost pieces when many long lines were logged at once
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 
