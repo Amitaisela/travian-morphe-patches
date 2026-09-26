@@ -1,3 +1,10 @@
+## [1.21.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.20.1...v1.21.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** read-only data check for celebrations, oases, merchants and hero ([ca96877](https://github.com/Amitaisela/travian-morphe-patches/commit/ca9687772c507e3973dc69d6a6d27b79b1885fb9))
+* **Travian: Legends:** start town hall celebrations automatically (off by default) ([021dfae](https://github.com/Amitaisela/travian-morphe-patches/commit/021dfaeca72c2f8d09bc69281075d635135e328f))
+
 ## [1.20.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.20.0...v1.20.1) (2026-09-26)
 
 ### 🐛 Bug Fixes
