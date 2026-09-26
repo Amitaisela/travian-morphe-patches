@@ -176,6 +176,7 @@ public class NotifierWorker extends Worker {
             return Result.success();
         }
         quiet = ActionSender.quietNow(getApplicationContext());
+        TravianSession.logKeyNamesOnce(getApplicationContext());
         try {
             Log.i(TAG, "check started" + (quiet ? " (quiet hours: alerts only)" : ""));
             String sessionCookie = TravianSession.readLobbySessionCookie(getApplicationContext());
