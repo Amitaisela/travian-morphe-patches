@@ -579,6 +579,71 @@ public class NotifierWorker extends Worker {
     private void refreshBuildingData(OkHttpClient http, String gameworldHost) {
         refreshBuildingRules(http, gameworldHost);
         refreshPlayerBuildings(http, gameworldHost);
+        try {
+            refreshLandDistribution(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "land distribution read failed: " + e);
+        }
+    }
+
+    /** village id -> the game's landDistribution value (picks the field layout on the Map). */
+    static final String KEY_LAND_DISTRIBUTION = "land_distribution";
+    private static final String KEY_LAND_TRIED_AT = "land_distribution_tried_at";
+
+    /**
+     * Reads each village's landDistribution once (it never changes), so the Map can place the fields the way
+     * the game does. The field name comes from the game client; where it sits in the API is tried in two
+     * places, at most every 6 hours while unknown. The raw answers are logged ("LAND" lines).
+     */
+    private void refreshLandDistribution(OkHttpClient http, String gameworldHost) throws Exception {
+        SharedPreferences state = statePrefs();
+        PlayerBuildings player = PlayerBuildings.parse(state.getString(KEY_PLAYER_BUILDINGS, null));
+        if (player == null || player.villages.isEmpty()) {
+            return;
+        }
+        JSONObject known = new JSONObject(state.getString(KEY_LAND_DISTRIBUTION, "{}"));
+        boolean missing = false;
+        for (PlayerBuildings.Village v : player.villages) {
+            missing |= !known.has(v.id);
+        }
+        long now = System.currentTimeMillis();
+        if (!missing || now - state.getLong(KEY_LAND_TRIED_AT, 0) < 6 * 3_600_000L) {
+            return;
+        }
+        state.edit().putLong(KEY_LAND_TRIED_AT, now).apply();
+        JSONObject own = null;
+        try {
+            JSONObject first = runRootQuery(http, gameworldHost, "query { ownPlayer { villages { id landDistribution } } }");
+            Log.i(TAG, "LAND ownPlayer: " + cut(first.toString(), 600));
+            own = dataObject(first, "ownPlayer");
+        } catch (Exception e) {
+            Log.i(TAG, "LAND ownPlayer failed: " + e);
+        }
+        org.json.JSONArray list = own == null ? null : own.optJSONArray("villages");
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject v = list.optJSONObject(i);
+            if (v != null && v.has("landDistribution") && !v.isNull("landDistribution")) {
+                known.put(String.valueOf(v.opt("id")), String.valueOf(v.opt("landDistribution")));
+            }
+        }
+        for (PlayerBuildings.Village v : player.villages) {
+            if (known.has(v.id)) {
+                continue;
+            }
+            JSONObject one = null;
+            try {
+                JSONObject second = runRootQuery(http, gameworldHost,
+                        "query { village( id: " + Long.parseLong(v.id) + " ) { landDistribution } }");
+                Log.i(TAG, "LAND village " + v.id + ": " + cut(second.toString(), 600));
+                one = dataObject(second, "village");
+            } catch (Exception e) {
+                Log.i(TAG, "LAND village " + v.id + " failed: " + e);
+            }
+            if (one != null && one.has("landDistribution") && !one.isNull("landDistribution")) {
+                known.put(v.id, String.valueOf(one.opt("landDistribution")));
+            }
+        }
+        state.edit().putString(KEY_LAND_DISTRIBUTION, known.toString()).apply();
     }
 
     private void refreshBuildingRules(OkHttpClient http, String gameworldHost) {
@@ -746,7 +811,8 @@ public class NotifierWorker extends Worker {
             }
             try {
                 ActionClient.Result r = ActionSender.send(ctx, http, gameworldHost,
-                        GameActions.build(village.id, out.fire.slotId, out.fire.typeId, label), true);
+                        GameActions.build(village.id, out.fire.slotId, out.fire.typeId, label,
+                                out.fire.fromLevel, out.fire.next), true);
                 Log.i(TAG, "build queue " + village.id + ": " + label + " -> " + r.outcome);
                 if (r.sessionExpired) {
                     clearCachedWorldToken();

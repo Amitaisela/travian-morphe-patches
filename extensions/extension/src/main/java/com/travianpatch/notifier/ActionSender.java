@@ -92,18 +92,18 @@ final class ActionSender {
         long nextAttack = ActionClient.effectiveNextAttack(state.getLong(NotifierWorker.KEY_NEXT_ATTACK_AT, 0),
                 state.getLong(NotifierWorker.KEY_ATTACKS_KNOWN_AT, 0), now);
 
-        if ("BUILD".equals(action.kind) || "TRAIN".equals(action.kind)) {
+        if (ActionSteps.inVillage(action.kind)) {
             int villages = villageCount(state);
             if (villages < 1) {
                 return finish(ctx, p, recent, now, action, new ActionClient.Result("REFUSED", 0,
                         "the village list isn't read yet", false, null));
             }
+            // Check the action itself first, so a refused action never touches the game at all.
+            ActionClient.Result pre = preflight(action, automated, settings, now, nextAttack, recent);
+            if (pre != null) {
+                return finish(ctx, p, recent, now, action, pre);
+            }
             if (villages > 1) {
-                // Check the action itself first, so a refused action never moves the game's current village.
-                ActionClient.Result pre = preflight(action, automated, settings, now, nextAttack, recent);
-                if (pre != null) {
-                    return finish(ctx, p, recent, now, action, pre);
-                }
                 ActionClient.Result switched;
                 try {
                     switched = ActionClient.sendWith(transport, GameActions.changeVillage(action.villageId), automated,
@@ -115,6 +115,26 @@ final class ActionSender {
                     return finish(ctx, p, recent, now, action, new ActionClient.Result("REFUSED", 0,
                             "not sent: switching to the village failed (" + switched.describe() + ")", false, null));
                 }
+                pause(ActionSteps.AFTER_SWITCH);
+            }
+            if (!settings.dryRun) {
+                // Open the village the way the game does and check its fresh answer before going on.
+                String why;
+                try {
+                    ActionClient.Response view = transport.post("/graphql", ActionSteps.villageViewBody(action.villageId));
+                    why = view.code == 200 ? ActionSteps.check(view.body, action)
+                            : "the game didn't open the village (HTTP " + view.code + ")";
+                } catch (Exception e) {
+                    why = "couldn't open the village (" + e.getClass().getSimpleName() + ")";
+                }
+                if (why != null) {
+                    Log.i(TAG, "action " + action.kind + " " + action.label + ": stopped before sending: " + why);
+                    return finish(ctx, p, recent, now, action, new ActionClient.Result("REFUSED", 0,
+                            "not sent: " + why, false, null));
+                }
+                pause(ActionSteps.OPEN_BUILDING);
+                pause(ActionSteps.PRESS);
+                now = System.currentTimeMillis();
             }
         }
         ActionClient.Result result = ActionClient.sendWith(transport, action, automated, settings, now, nextAttack, recent);
@@ -125,6 +145,16 @@ final class ActionSender {
         Log.i(TAG, "action " + action.kind + " " + action.label + ": " + result.outcome
                 + (result.httpCode > 0 ? " HTTP " + result.httpCode : "") + " " + result.describe());
         return finish(ctx, p, recent, now, action, result);
+    }
+
+    private static final java.util.Random PAUSE_RANDOM = new java.util.Random();
+
+    private static void pause(int step) {
+        try {
+            Thread.sleep(ActionSteps.pauseMs(PAUSE_RANDOM, step));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /** The guard's answer for the action without sending or marking anything; null when it may go. */

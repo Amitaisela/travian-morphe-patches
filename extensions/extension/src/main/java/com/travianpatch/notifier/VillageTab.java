@@ -6,7 +6,6 @@ import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.view.Gravity;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -535,125 +534,60 @@ final class VillageTab implements HubActivity.Tab {
     // ------------------------------------------------------------------ map
 
     /**
-     * The village's slots as two simple grids, numbered with the game's slot ids: fields 1-18, then the
-     * village (19-38, rally point 39, wall 40, any extra slots the game lists). Each tile shows what stands
-     * there and its level; a queued target shows as "→ N". Tap a tile to build or queue on that slot.
+     * The village the way the game shows it: the fields around the village, then the buildings inside the
+     * wall, each at the game's own position (VillageLayout). Tap a slot to build or queue there.
      */
-    private View mapView(PlayerBuildings.Village village) {
+    private View mapView(final PlayerBuildings.Village village) {
         LinearLayout col = new LinearLayout(a);
         col.setOrientation(LinearLayout.VERTICAL);
-        List<PlayerBuildings.Slot> fields = new ArrayList<PlayerBuildings.Slot>();
-        List<PlayerBuildings.Slot> center = new ArrayList<PlayerBuildings.Slot>();
-        List<PlayerBuildings.Slot> sorted = new ArrayList<PlayerBuildings.Slot>(village.slots);
-        Collections.sort(sorted, new Comparator<PlayerBuildings.Slot>() {
-            @Override
-            public int compare(PlayerBuildings.Slot x, PlayerBuildings.Slot y) {
-                return x.slotId - y.slotId;
-            }
-        });
-        for (PlayerBuildings.Slot s : sorted) {
-            (s.slotId <= 18 ? fields : center).add(s);
+        String raw = null;
+        try {
+            org.json.JSONObject known = new org.json.JSONObject(a.getSharedPreferences(NotifierWorker.STATE_PREFS,
+                    Context.MODE_PRIVATE).getString(NotifierWorker.KEY_LAND_DISTRIBUTION, "{}"));
+            raw = known.has(villageId) ? known.optString(villageId) : null;
+        } catch (Exception ignored) {
+            // not read yet
         }
+        int distribution = VillageLayout.distribution(raw);
+        List<VillageMapView.Spot> spots = new ArrayList<VillageMapView.Spot>();
+        for (PlayerBuildings.Slot s : village.slots) {
+            int planned = 0;
+            for (BuildOrderStore.Entry e : order) {
+                if (e.slotId == s.slotId && (s.isEmpty() || e.buildingTypeId == s.typeId)) {
+                    planned = Math.max(planned, e.targetLevel);
+                }
+            }
+            spots.add(new VillageMapView.Spot(s.slotId, s.typeId, s.level, village.queuedLevel(s.slotId), planned,
+                    s.isEmpty() ? "" : GameData.buildingName(s.typeId)));
+        }
+        VillageMapView.OnSlot onSlot = new VillageMapView.OnSlot() {
+            @Override
+            public void tapped(int slotId) {
+                for (PlayerBuildings.Slot s : village.slots) {
+                    if (s.slotId == slotId) {
+                        tapSlot(s);
+                        return;
+                    }
+                }
+            }
+        };
         LinearLayout f = UiKit.card(a);
         f.addView(UiKit.text(a, "Fields", 15, true, UiKit.textColor(a)));
-        f.addView(grid(fields, 3, village));
+        f.addView(new VillageMapView(a, true, distribution, spots, onSlot));
+        if (distribution == 0) {
+            f.addView(UiKit.muted(a, "Field spots follow the game's most common layout until the game tells this "
+                    + "app your village's field pattern (read once, at a background check)."));
+        }
         col.addView(f, UiKit.cardParams(a));
         LinearLayout c = UiKit.card(a);
         c.addView(UiKit.text(a, "Village", 15, true, UiKit.textColor(a)));
-        c.addView(grid(center, 4, village));
-        TextView note = UiKit.muted(a, "Numbers are the game's slot numbers. The tiles are a simple grid, "
-                + "not the game's own picture. Tap a tile to build or queue there.");
+        c.addView(new VillageMapView(a, false, distribution, spots, onSlot));
+        TextView note = UiKit.muted(a, "Spots are where the game's own screens put them. ⚒ = building now, "
+                + "→ = in your queue. Tap a spot (or the wall ring) to build or queue.");
         note.setPadding(0, UiKit.dp(a, 8), 0, 0);
         c.addView(note);
         col.addView(c, UiKit.cardParams(a));
         return col;
-    }
-
-    private View grid(List<PlayerBuildings.Slot> slots, int columns, PlayerBuildings.Village village) {
-        LinearLayout rowsCol = new LinearLayout(a);
-        rowsCol.setOrientation(LinearLayout.VERTICAL);
-        rowsCol.setPadding(0, UiKit.dp(a, 6), 0, 0);
-        LinearLayout line = null;
-        for (int i = 0; i < slots.size(); i++) {
-            if (i % columns == 0) {
-                line = new LinearLayout(a);
-                line.setOrientation(LinearLayout.HORIZONTAL);
-                rowsCol.addView(line);
-            }
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, UiKit.dp(a, 64), 1f);
-            int m = UiKit.dp(a, 3);
-            lp.setMargins(m, m, m, m);
-            line.addView(tile(slots.get(i), village), lp);
-        }
-        if (line != null) {
-            for (int i = slots.size() % columns; i > 0 && i < columns; i++) {
-                View spacer = new View(a);
-                line.addView(spacer, new LinearLayout.LayoutParams(0, UiKit.dp(a, 64), 1f));
-            }
-        }
-        return rowsCol;
-    }
-
-    private View tile(final PlayerBuildings.Slot s, PlayerBuildings.Village village) {
-        LinearLayout t = new LinearLayout(a);
-        t.setOrientation(LinearLayout.VERTICAL);
-        t.setGravity(Gravity.CENTER);
-        int pad = UiKit.dp(a, 3);
-        t.setPadding(pad, pad, pad, pad);
-        android.graphics.drawable.GradientDrawable bg = UiKit.rounded(tileColor(s), 10, a);
-        if (s.isEmpty()) {
-            bg.setStroke(UiKit.dp(a, 1), UiKit.mutedColor(a), UiKit.dp(a, 4), UiKit.dp(a, 3));
-        }
-        t.setBackground(bg);
-        int gameQueued = village.queuedLevel(s.slotId);
-        int planned = s.isEmpty() ? 0 : BuildOrderStore.plannedLevel(order, s.typeId, s.slotId);
-        for (BuildOrderStore.Entry e : order) {
-            if (s.isEmpty() && e.slotId == s.slotId) {
-                planned = Math.max(planned, e.targetLevel);
-            }
-        }
-        String name = s.isEmpty() ? (s.slotId == BuildChoices.WALL_SLOT ? "Wall spot"
-                : s.slotId == BuildChoices.RALLY_POINT_SLOT ? "Rally spot" : "empty")
-                : GameData.buildingName(s.typeId);
-        String level = s.isEmpty() ? (planned > 0 ? "→ " + planned : "")
-                : "Lv " + s.level + (gameQueued > s.level ? " ⚒" + gameQueued : "")
-                + (planned > Math.max(s.level, gameQueued) ? " → " + planned : "");
-        TextView num = UiKit.text(a, String.valueOf(s.slotId), 10, false, UiKit.mutedColor(a));
-        TextView label = UiKit.text(a, name, 11, true, UiKit.textColor(a));
-        label.setGravity(Gravity.CENTER);
-        label.setMaxLines(2);
-        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        t.addView(num);
-        t.addView(label);
-        if (level.length() > 0) {
-            t.addView(UiKit.text(a, level, 11, false, UiKit.accentText(a)));
-        }
-        t.setClickable(true);
-        t.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                tapSlot(s);
-            }
-        });
-        return t;
-    }
-
-    private int tileColor(PlayerBuildings.Slot s) {
-        boolean dark = UiKit.dark(a);
-        switch (s.isEmpty() ? 0 : s.typeId) {
-            case 0:
-                return 0x00000000;
-            case 1: // woodcutter
-                return dark ? 0xFF2F3D22 : 0xFFDDE8CF;
-            case 2: // clay pit
-                return dark ? 0xFF4A2F22 : 0xFFF2D9C8;
-            case 3: // iron mine
-                return dark ? 0xFF33363B : 0xFFDDE0E4;
-            case 4: // cropland
-                return dark ? 0xFF4A4020 : 0xFFF5EAC2;
-            default:
-                return dark ? 0xFF2C2A28 : 0xFFEFEAE4;
-        }
     }
 
     /** A built slot: its upgrade row. An empty slot: pick which building goes there first. */
@@ -752,7 +686,6 @@ final class VillageTab implements HubActivity.Tab {
         if (!replaced) {
             order.add(new BuildOrderStore.Entry(r.typeId, target, r.slotId));
         }
-        Toast.makeText(a, "Queued " + GameData.buildingName(r.typeId) + " → " + target, Toast.LENGTH_SHORT).show();
         saveOrder();
     }
 
@@ -808,7 +741,7 @@ final class VillageTab implements HubActivity.Tab {
             public void run() {
                 String text;
                 try {
-                    ActionClient.Result res = ActionSender.sendFromScreen(a, GameActions.build(vid, slot, r.typeId, label));
+                    ActionClient.Result res = ActionSender.sendFromScreen(a, GameActions.build(vid, slot, r.typeId, label, r.fromLevel, r.next));
                     text = label + ": " + res.describe();
                     if ("SENT".equals(res.outcome)) {
                         NotifierWorker.requestCheckNow(a);

@@ -22,6 +22,17 @@ final class GameActions {
                 "build:" + villageId + ":" + slotId + ":" + typeId);
     }
 
+    /**
+     * Like build(), plus what the screen expected: the level on that slot now (0 for an empty slot) and the
+     * game's cost, so the send is stopped if the game's fresh village data says otherwise (ActionSteps).
+     */
+    static GameAction build(String villageId, int slotId, int typeId, String label, int fromLevel,
+                            BuildingRules.Level cost) throws Exception {
+        GameAction plain = build(villageId, slotId, typeId, label);
+        return new GameAction(plain.kind, villageId, plain.path, plain.body, label, plain.dedupeKey, slotId, typeId,
+                fromLevel, cost == null ? null : new long[]{cost.lumber, cost.clay, cost.iron, cost.crop});
+    }
+
     /** Train troops in the building on this slot (barracks, stable, ...). Counts of 0 are left out. */
     static GameAction train(String villageId, int slotId, Map<String, Integer> units, String label) throws Exception {
         JSONObject set = new JSONObject();
