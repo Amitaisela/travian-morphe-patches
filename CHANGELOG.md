@@ -1,3 +1,10 @@
+## [1.18.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.17.0...v1.18.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** queue a specific building slot and say what is missing ([9e01120](https://github.com/Amitaisela/travian-morphe-patches/commit/9e011205e8a46eac57ccf03646b9e76aa376372e))
+* **Travian: Legends:** redesign Travian Tools into one screen with tabs ([e32a303](https://github.com/Amitaisela/travian-morphe-patches/commit/e32a30328f15166ed9ebe860f522a4b7f9526b80))
+
 ## [1.17.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.16.2...v1.17.0) (2026-09-25)
 
 ### 🐛 Bug Fixes
