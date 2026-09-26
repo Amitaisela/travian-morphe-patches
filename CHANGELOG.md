@@ -1,3 +1,9 @@
+## [1.20.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.20.0...v1.20.1) (2026-09-26)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** show that a tapped build is on its way and log every outcome ([8b3ab6c](https://github.com/Amitaisela/travian-morphe-patches/commit/8b3ab6c4029b6ed7eedf86e1d99f3d4f4ec6692b))
+
 ## [1.20.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.19.0...v1.20.0) (2026-09-26)
 
 ### ✨ New Features
