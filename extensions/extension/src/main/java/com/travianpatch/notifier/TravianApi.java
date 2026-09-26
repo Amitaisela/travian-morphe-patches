@@ -68,6 +68,30 @@ final class TravianApi {
         }
     }
 
+    /** A non-2xx HTTP answer. */
+    static final class HttpError extends Exception {
+        final int code;
+
+        HttpError(int code) {
+            super("HTTP " + code);
+            this.code = code;
+        }
+    }
+
+    /** Like executeJson, but a non-2xx answer throws HttpError instead of being read as JSON. */
+    static JSONObject executeJsonStrict(OkHttpClient http, Request req) throws Exception {
+        Response resp = http.newCall(req).execute();
+        try {
+            if (resp.code() < 200 || resp.code() >= 300) {
+                throw new HttpError(resp.code());
+            }
+            String bodyStr = resp.body() != null ? resp.body().string() : "";
+            return bodyStr.length() == 0 ? new JSONObject() : new JSONObject(bodyStr);
+        } finally {
+            resp.close();
+        }
+    }
+
     // ------------------------------------------------------------------
     // request body helpers (avoids OkHttp version-specific RequestBody.create
     // overload ordering, which differs between OkHttp 3.x and 4.x)

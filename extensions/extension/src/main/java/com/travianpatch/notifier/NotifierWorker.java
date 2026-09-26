@@ -88,20 +88,10 @@ public class NotifierWorker extends Worker {
     /** "true"/"false" once read, absent until then; read by the Hub screen. */
     static final String KEY_GOLD_CLUB = "gold_club";
     private static final String KEY_GOLD_CLUB_LOGGED_AT = "gold_club_logged_at";
-    private static final String KEY_CP_LOGGED_AT = "cp_logged_at";
-    private static final String KEY_BUILD_COST_LOGGED_AT = "build_cost_logged_at";
-    private static final String KEY_MARKET_LOGGED_AT = "market_logged_at";
     private static final int PENDING_FLAGS = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
     private static final String KEY_RETRIES = "retries";
-    /** Wait a few seconds past the finish time so the server has processed the completion. */
-    private static final long SETTLE_BUFFER_MS = 3_000L;
     /** A finish time that passed this recently but is still listed means the server is lagging: recheck. */
     private static final long LAG_WINDOW_MS = 60_000L;
-    private static final long LAG_RETRY_MS = 20_000L;
-    private static final int MAX_LAG_RETRIES = 5;
-    private static final long MAX_SCHEDULE_AHEAD_MS = TimeUnit.DAYS.toMillis(2);
-    /** Regular re-check interval, used when nothing is due sooner (catches builds started elsewhere). */
-    private static final long POLL_INTERVAL_MS = TimeUnit.MINUTES.toMillis(5);
     /** Don't reuse a cached world token that expires within this margin. */
     private static final long TOKEN_MARGIN_MS = TimeUnit.MINUTES.toMillis(2);
     static final String KEY_WORLD_HOST = "world_host";
@@ -114,7 +104,6 @@ public class NotifierWorker extends Worker {
     private static final String KEY_STORAGE_ALERTED = "storage_alerted";
     private static final String KEY_HERO_LOGGED = "hero_logged";
     private static final String KEY_HERO_STATE = "hero_state";
-    private static final String KEY_FARM_LOGGED_AT = "farm_logged_at";
     /** If the game rejects the movements part of the poll query, skip it until this time (epoch ms). */
     private static final String KEY_MOVEMENTS_OFF_UNTIL = "movements_off_until";
     private static final String ATTACK_CHANNEL_ID = NotifierBootstrap.ATTACK_CHANNEL_ID;
@@ -122,7 +111,9 @@ public class NotifierWorker extends Worker {
     private static final long EARLY_TOLERANCE_MS = 30_000L;
 
     // earliest upcoming finish seen during this run (epoch ms), and whether a just-passed one is still listed
-    private long nextWakeMs = Long.MAX_VALUE;
+    private long nextWakeMs = CheckPacing.NONE;
+    /** The earliest attack reminder / troop escape moment seen during this run (epoch ms). */
+    private long attackWakeMs = CheckPacing.NONE;
     /** This check's incoming attacks, set only when every village's attack list was read. */
     private List<AttackAlerts.Alert> completeAttacks;
     private boolean lagging = false;
@@ -149,9 +140,44 @@ public class NotifierWorker extends Worker {
         }
     }
 
+    /** When the last check finished (epoch ms); a check right after it is skipped (CheckPacing.tooSoon). */
+    private static final String KEY_LAST_CHECK_END = "last_check_end";
+    /** When the last full sign-in (lobby → world) was made; at most one per SIGN_IN_GAP_MS. */
+    private static final String KEY_LAST_SIGN_IN = "last_sign_in";
+    /** Checks that failed in a row; each one waits longer (CheckPacing.failureDelayMs). */
+    private static final String KEY_FAILURES = "check_failures";
+    private static final long SIGN_IN_GAP_MS = TimeUnit.MINUTES.toMillis(30);
+    /** Set on the chain's own requests (not on the 15-minute job or a screen's "check now"). */
+    private static final String KEY_CHAINED = "chained";
+    /** Set on the check a Travian Tools screen asks for. */
+    private static final String KEY_ASKED_NOW = "asked_now";
+    /** When the chain's next check is due (epoch ms). */
+    private static final String KEY_NEXT_CHECK_AT = "next_check_at";
+
     private Result runCheck() {
+        long start = System.currentTimeMillis();
+        boolean chained = getInputData().getBoolean(KEY_CHAINED, false);
+        boolean askedNow = getInputData().getBoolean(KEY_ASKED_NOW, false);
+        if (!chained && CheckPacing.tooSoon(start, statePrefs().getLong(KEY_LAST_CHECK_END, 0))) {
+            Log.i(TAG, "check skipped: the last one finished less than a minute ago");
+            return Result.success();
+        }
+        if (!chained && !askedNow && CheckPacing.chainAlive(start, statePrefs().getLong(KEY_NEXT_CHECK_AT, 0))) {
+            // The 15-minute safety job only restarts a chain that stopped; it isn't an extra check.
+            Log.i(TAG, "safety check skipped: the next regular check is already scheduled");
+            return Result.success();
+        }
+        if (GameScreen.busy(start)) {
+            // The game is talking to its server itself; don't be a second client at the same moment.
+            Log.i(TAG, "check skipped: the game is open");
+            statusNote = "Paused while the game is open";
+            scheduleAfter(Math.max(GameScreen.msUntilFree(start), CheckPacing.between(random, CheckPacing.AWAKE_MIN_MS,
+                    CheckPacing.AWAKE_MAX_MS)));
+            return Result.success();
+        }
+        quiet = ActionSender.quietNow(getApplicationContext());
         try {
-            Log.i(TAG, "check started");
+            Log.i(TAG, "check started" + (quiet ? " (quiet hours: alerts only)" : ""));
             String sessionCookie = TravianSession.readLobbySessionCookie(getApplicationContext());
             if (sessionCookie == null) {
                 // Not logged in yet (e.g. a fresh install). Keep the chain alive with a cheap local-only
@@ -163,40 +189,61 @@ public class NotifierWorker extends Worker {
                 return Result.success();
             }
 
-            // Fast path: reuse the world token cached from the last full sign-in (one request per
-            // check). Only when it's missing, expired or rejected do we redo the full sign-in.
+            // Fast path: reuse the world token cached from the last full sign-in. Only when it's missing,
+            // expired or refused is the full sign-in redone, and never more than once per SIGN_IN_GAP_MS.
             SimpleCookieJar jar = new SimpleCookieJar();
             OkHttpClient http = TravianApi.newClient(jar);
             String gameworldHost = seedCachedWorldToken(jar);
             if (gameworldHost != null) {
                 try {
                     poll(http, gameworldHost);
-                    scheduleNextCheck();
-                    return Result.success();
+                    return succeeded();
                 } catch (AuthExpiredException e) {
-                    Log.i(TAG, "cached world token was rejected, signing in again");
+                    Log.i(TAG, "cached world token was refused (" + e.getMessage() + "), signing in again");
                     clearCachedWorldToken();
                     jar = new SimpleCookieJar();
                     http = TravianApi.newClient(jar);
                 }
             }
 
+            long lastSignIn = statePrefs().getLong(KEY_LAST_SIGN_IN, 0);
+            if (start - lastSignIn < SIGN_IN_GAP_MS && start >= lastSignIn) {
+                return failed("signed in less than 30 minutes ago; waiting before signing in again");
+            }
+            statePrefs().edit().putLong(KEY_LAST_SIGN_IN, start).apply();
             gameworldHost = resumeSession(http, jar, sessionCookie);
             if (gameworldHost == null) {
-                statusNote = "The game's login was not accepted, will try again";
-                scheduleNextCheck(); // the game's session wasn't usable right now; try again later
-                return Result.success();
+                return failed("the game's login was not accepted");
             }
             cacheWorldToken(jar, gameworldHost);
 
             poll(http, gameworldHost);
-            scheduleNextCheck();
-            return Result.success();
+            return succeeded();
         } catch (Exception e) {
-            Log.w(TAG, "notifier check failed, will retry: " + e);
-            saveStatus("Last check failed, will retry");
-            return Result.retry();
+            // Refused, busy ("too many requests"), maintenance, no network: wait longer each time. Never a
+            // quick retry, and never a new sign-in just because an answer had no data.
+            return failed(e.toString());
         }
+    }
+
+    private boolean quiet = false;
+    private final java.util.Random random = new java.util.Random();
+
+    private Result succeeded() {
+        statePrefs().edit().putInt(KEY_FAILURES, 0).putLong(KEY_LAST_CHECK_END, System.currentTimeMillis()).apply();
+        scheduleNextCheck();
+        return Result.success();
+    }
+
+    private Result failed(String why) {
+        int failures = statePrefs().getInt(KEY_FAILURES, 0) + 1;
+        long delay = CheckPacing.failureDelayMs(failures, quiet, random);
+        Log.w(TAG, "check failed (" + failures + " in a row), next try in " + (delay / 1000) + "s: " + why);
+        statePrefs().edit().putInt(KEY_FAILURES, failures).putLong(KEY_LAST_CHECK_END, System.currentTimeMillis())
+                .apply();
+        statusNote = failures == 1 ? "Last check failed, will try again" : "Last " + failures + " checks failed, will try again";
+        scheduleAfter(delay);
+        return Result.success();
     }
 
     // ------------------------------------------------------------------
@@ -206,24 +253,24 @@ public class NotifierWorker extends Worker {
     private void scheduleNextCheck() {
         long now = System.currentTimeMillis();
         int retries = getInputData().getInt(KEY_RETRIES, 0);
-        long delayMs;
-        int nextRetries = 0;
-        if (lagging && retries < MAX_LAG_RETRIES) {
-            delayMs = LAG_RETRY_MS;
-            nextRetries = retries + 1;
-        } else {
-            // Wake at the earliest known finish time, but never wait longer than the regular
-            // interval: that's how a build started elsewhere (e.g. on a PC) gets noticed.
-            long untilFinishMs = (nextWakeMs != Long.MAX_VALUE && nextWakeMs - now <= MAX_SCHEDULE_AHEAD_MS)
-                    ? Math.max(nextWakeMs - now, 0L) + SETTLE_BUFFER_MS
-                    : Long.MAX_VALUE;
-            delayMs = Math.min(untilFinishMs, POLL_INTERVAL_MS);
-        }
+        // The regular 4-7 minute check (20-40 in quiet hours) is how a build started elsewhere (e.g. on a PC)
+        // gets noticed; finish times and attack moments can bring it forward (see CheckPacing).
+        long delayMs = CheckPacing.nextDelayMs(now, nextWakeMs, attackWakeMs, lagging, retries, quiet, random);
+        int nextRetries = lagging && retries < CheckPacing.MAX_LAG_RETRIES ? retries + 1 : 0;
+        schedule(delayMs, nextRetries);
+    }
 
+    private void scheduleAfter(long delayMs) {
+        schedule(delayMs, 0);
+    }
+
+    private void schedule(long delayMs, int nextRetries) {
+        statePrefs().edit().putLong(KEY_NEXT_CHECK_AT, System.currentTimeMillis() + delayMs).apply();
         OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(NotifierWorker.class)
                 .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
                 .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setInputData(new Data.Builder().putInt(KEY_RETRIES, nextRetries).build())
+                .setInputData(new Data.Builder().putInt(KEY_RETRIES, nextRetries).putBoolean(KEY_CHAINED, true)
+                        .build())
                 .build();
         WorkManager.getInstance(getApplicationContext())
                 .enqueueUniqueWork(NEXT_WORK_NAME, ExistingWorkPolicy.REPLACE, request);
@@ -240,6 +287,7 @@ public class NotifierWorker extends Worker {
         try {
             OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(NotifierWorker.class)
                     .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setInputData(new Data.Builder().putBoolean(KEY_ASKED_NOW, true).build())
                     .build();
             WorkManager.getInstance(ctx.getApplicationContext())
                     .enqueueUniqueWork(CHECK_NOW_WORK_NAME, ExistingWorkPolicy.KEEP, request);
@@ -259,9 +307,12 @@ public class NotifierWorker extends Worker {
     }
 
     /** Records a finish time from the server: schedules around it, or flags server lag if it just passed. */
-    private void noteFinish(String label, long finishMs) {
+    private void noteFinish(NotificationKind kind, String label, long finishMs) {
         if (finishMs <= 0) {
             return;
+        }
+        if (!NotifierSettings.isEnabled(getApplicationContext(), kind)) {
+            return; // muted: nobody is told about it, so no early check for it (the regular one sees it)
         }
         long delta = finishMs - System.currentTimeMillis();
         Log.i(TAG, label + " finishes in " + (delta / 1000) + "s");
@@ -354,6 +405,14 @@ public class NotifierWorker extends Worker {
         return exp > 0 ? exp * 1000L : 0;
     }
 
+    /** The world this app signed in to last; kept when the token is cleared, so the same world is picked again. */
+    private static final String KEY_LAST_WORLD_HOST = "last_world_host";
+
+    private static String worldHostOf(JSONObject avatar) throws Exception {
+        String url = avatar.getJSONObject("gameworld").getJSONObject("metadata").getString("url");
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+    }
+
     private String resumeSession(OkHttpClient http, SimpleCookieJar jar, String sessionCookie) throws Exception {
         String lobbyHost = TravianApi.hostOf(TravianApi.LOBBY_HOST);
         Cookie cookie = new Cookie.Builder()
@@ -383,10 +442,21 @@ public class NotifierWorker extends Worker {
         if (avatars.length() == 0) {
             return null;
         }
+        // Stay on the world used last time; the first one only when there is no earlier choice.
+        String lastWorld = statePrefs().getString(KEY_LAST_WORLD_HOST, null);
         JSONObject avatar = avatars.getJSONObject(0);
+        for (int i = 0; i < avatars.length() && lastWorld != null; i++) {
+            if (lastWorld.equals(worldHostOf(avatars.getJSONObject(i)))) {
+                avatar = avatars.getJSONObject(i);
+                break;
+            }
+        }
+        if (avatars.length() > 1) {
+            Log.i(TAG, avatars.length() + " game accounts (avatars) found, using the one on " + worldHostOf(avatar));
+        }
         String avatarUuid = avatar.getString("uuid");
-        String worldUrl = avatar.getJSONObject("gameworld").getJSONObject("metadata").getString("url");
-        String worldHost = worldUrl.endsWith("/") ? worldUrl.substring(0, worldUrl.length() - 1) : worldUrl;
+        String worldHost = worldHostOf(avatar);
+        statePrefs().edit().putString(KEY_LAST_WORLD_HOST, worldHost).apply();
 
         Request playReq = new Request.Builder()
                 .url(TravianApi.LOBBY_HOST + "/api/avatar/play/" + avatarUuid)
@@ -418,12 +488,24 @@ public class NotifierWorker extends Worker {
                 + "} } }\" }";
     }
 
+    /**
+     * The poll request. HTTP 401/403 means the world token was refused (sign in again); any other non-2xx
+     * answer ("too many requests", maintenance, server error) or an unreadable one is thrown as it is, so
+     * the check waits instead of signing in again.
+     */
     private JSONObject runPollQuery(OkHttpClient http, String gameworldHost, boolean withMovements) throws Exception {
         Request req = new Request.Builder()
                 .url(gameworldHost + "/api/v1/graphql")
                 .post(TravianApi.jsonBody(pollQuery(withMovements)))
                 .build();
-        return TravianApi.executeJson(http, req);
+        try {
+            return TravianApi.executeJsonStrict(http, req);
+        } catch (TravianApi.HttpError e) {
+            if (e.code == 401 || e.code == 403) {
+                throw new AuthExpiredException("HTTP " + e.code);
+            }
+            throw e;
+        }
     }
 
     private boolean movementsEnabled() {
@@ -453,6 +535,8 @@ public class NotifierWorker extends Worker {
             }
         }
         if (data == null) {
+            // Could be a refused token the game reports as an error, or anything else. A new sign-in is
+            // allowed for it, but runCheck limits sign-ins to one per 30 minutes.
             throw new AuthExpiredException("no data in poll response: " + errorSummary(resp));
         }
         JSONObject player = data.getJSONObject("p");
@@ -488,7 +572,7 @@ public class NotifierWorker extends Worker {
                             ev.optInt("buildingTypeId", -1), ev.optInt("aspiredLevel", -1), 0, finishMs));
                     Log.i(TAG, "build event " + id + " active=" + active + " raw timestamp=" + ev.optLong("timestamp", 0));
                     if (active) {
-                        noteFinish("build " + id, finishMs);
+                        noteFinish(NotificationKind.forTrackedKind("build"), "build " + id, finishMs);
                     }
                 }
             }
@@ -548,7 +632,13 @@ public class NotifierWorker extends Worker {
             }
         }
 
-        checkExtras(http, gameworldHost);
+        if (quiet) {
+            // Quiet hours: no automatic action may go out anyway, so only the one poll above (attacks,
+            // queues, arrivals) runs; storage, hero, silver and building reads wait for the morning.
+            Log.i(TAG, "quiet hours: extras skipped");
+        } else {
+            checkExtras(http, gameworldHost);
+        }
         Log.i(TAG, "poll ok: villages=" + villages.length() + " active=" + stillActive.size());
     }
 
@@ -655,7 +745,7 @@ public class NotifierWorker extends Worker {
         boolean haveRules = BuildingRules.cacheUsable(rulesPrefs.getString(BuildingRules.KEY_JSON, null),
                 rulesPrefs.getString(BuildingRules.KEY_QUERY, null));
         long now = System.currentTimeMillis();
-        if (haveRules && now - statePrefs().getLong(KEY_RULES_CHECKED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
+        if (haveRules && now - statePrefs().getLong(KEY_RULES_CHECKED_AT, 0) < TimeUnit.HOURS.toMillis(2)) {
             return;
         }
         try {
@@ -778,17 +868,10 @@ public class NotifierWorker extends Worker {
             return;
         }
         SharedPreferences orders = ctx.getSharedPreferences(BuildOrderStore.PREFS, Context.MODE_PRIVATE);
-        AutomationSettings.Config cfg = AutomationSettings.fromJson(
-                ctx.getSharedPreferences(AutomationSettings.PREFS, Context.MODE_PRIVATE)
-                        .getString(AutomationSettings.KEY, null));
+        AutomationSettings.Config cfg = ActionSender.timing(ctx);
         List<VillageResources.Entry> stocks = VillageResources.fromJson(state.getString(KEY_VILLAGE_RESOURCES, null));
         long now = System.currentTimeMillis();
-        java.util.Calendar midnight = java.util.Calendar.getInstance();
-        midnight.set(java.util.Calendar.HOUR_OF_DAY, 0);
-        midnight.set(java.util.Calendar.MINUTE, 0);
-        midnight.set(java.util.Calendar.SECOND, 0);
-        midnight.set(java.util.Calendar.MILLISECOND, 0);
-        boolean quiet = QuietHours.isQuiet(cfg.quietHours, now, midnight.getTimeInMillis());
+        boolean quiet = QuietHours.isQuietNow(cfg.quietHours, now);
         for (PlayerBuildings.Village village : player.villages) {
             if (!orders.getBoolean(BuildOrderStore.autoKey(village.id), false)) {
                 continue;
@@ -864,12 +947,17 @@ public class NotifierWorker extends Worker {
         if (player == null) {
             return;
         }
+        long now = System.currentTimeMillis();
+        // The town halls are read every 25-35 minutes, not every check (a celebration lasts hours).
+        if (now < state.getLong(KEY_CELEBRATIONS_NEXT_READ, 0)) {
+            return;
+        }
+        state.edit().putLong(KEY_CELEBRATIONS_NEXT_READ, now + CheckPacing.between(random, 25 * 60_000L, 35 * 60_000L))
+                .apply();
         String wanted = actions.getBoolean(CelebrationPlanner.KEY_GREAT, false) ? "GREAT" : "SMALL";
-        int buffer = AutomationSettings.fromJson(ctx.getSharedPreferences(AutomationSettings.PREFS,
-                Context.MODE_PRIVATE).getString(AutomationSettings.KEY, null)).bufferPercent;
+        int buffer = ActionSender.timing(ctx).bufferPercent;
         List<VillageResources.Entry> stocks = VillageResources.fromJson(state.getString(KEY_VILLAGE_RESOURCES, null));
         SharedPreferences orders = ctx.getSharedPreferences(BuildOrderStore.PREFS, Context.MODE_PRIVATE);
-        long now = System.currentTimeMillis();
         for (PlayerBuildings.Village village : player.villages) {
             JSONObject v = dataObject(runRootQuery(http, gameworldHost, CelebrationPlanner.query(village.id)),
                     "ownVillage");
@@ -1055,29 +1143,9 @@ public class NotifierWorker extends Worker {
             Log.w(TAG, "silver check failed: " + e);
         }
         try {
-            logFarmLists(http, gameworldHost);
-        } catch (Exception e) {
-            Log.w(TAG, "farm list log failed: " + e);
-        }
-        try {
             checkAccountTier(http, gameworldHost);
         } catch (Exception e) {
             Log.w(TAG, "gold club check failed: " + e);
-        }
-        try {
-            logCulturePointsAndSettlement(http, gameworldHost);
-        } catch (Exception e) {
-            Log.w(TAG, "culture points log failed: " + e);
-        }
-        try {
-            logBuildingCosts(http, gameworldHost);
-        } catch (Exception e) {
-            Log.w(TAG, "building cost log failed: " + e);
-        }
-        try {
-            logMarketplace(http, gameworldHost);
-        } catch (Exception e) {
-            Log.w(TAG, "marketplace log failed: " + e);
         }
     }
 
@@ -1089,7 +1157,9 @@ public class NotifierWorker extends Worker {
     private void checkAccountTier(OkHttpClient http, String gameworldHost) throws Exception {
         SharedPreferences prefs = statePrefs();
         long now = System.currentTimeMillis();
-        if (now - prefs.getLong(KEY_GOLD_CLUB_LOGGED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
+        // Every 30 minutes until the answer is known, then every 6 hours (it rarely changes).
+        long every = prefs.contains(KEY_GOLD_CLUB) ? TimeUnit.HOURS.toMillis(6) : TimeUnit.MINUTES.toMillis(30);
+        if (now - prefs.getLong(KEY_GOLD_CLUB_LOGGED_AT, 0) < every) {
             return;
         }
         prefs.edit().putLong(KEY_GOLD_CLUB_LOGGED_AT, now).apply();
@@ -1105,122 +1175,6 @@ public class NotifierWorker extends Worker {
             prefs.edit().putString(KEY_GOLD_CLUB, String.valueOf(raw)).apply();
         } else {
             Log.w(TAG, "goldClub wasn't a plain true/false, leaving it unknown: " + raw);
-        }
-    }
-
-    /**
-     * Diagnostic only, at most every 30 minutes: logs whatever the game returns for culture points and
-     * the next settlement slot, trying a few field-name guesses from the compiled client's own field
-     * names (culturePoints, nextSlotPrediction, villageSlotCount, ...). Nothing is shown on any screen
-     * yet — this is how the hero and storage fields were learned too, before those screens were built.
-     */
-    private void logCulturePointsAndSettlement(OkHttpClient http, String gameworldHost) {
-        SharedPreferences prefs = statePrefs();
-        long now = System.currentTimeMillis();
-        if (now - prefs.getLong(KEY_CP_LOGGED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
-            return;
-        }
-        prefs.edit().putLong(KEY_CP_LOGGED_AT, now).apply();
-        String[] variants = {
-                "culturePoints nextSlotAvailableAt nextSlotPrediction villageSlotCount",
-                "culturePoints",
-                "culturePointsRank nextSlotPrediction",
-                "villages { id name culturePointsDistributionPerDay }",
-        };
-        runDiagnosticVariants("culture points", http, gameworldHost, variants);
-        logSchema(http, gameworldHost, "Player", "fields");
-    }
-
-    /**
-     * Diagnostic only, at most every 30 minutes: logs the game's own upgrade-cost fields for a building,
-     * so a "smart queue" advisor can be built on the game's real costs instead of a guessed formula.
-     * Nothing is shown on any screen yet.
-     *
-     * Unlike runDiagnosticVariants (used elsewhere in this file), this tries every variant every time
-     * and never stops early on a "clean" response: a real response was seen where the top-level query
-     * succeeded with no GraphQL errors at all, yet the requested nested field (buildingSlots) was simply
-     * missing from the returned object. So "no errors" does not mean "the field I asked for came back" on
-     * this server for a nested selection - each variant below asks for exactly one field at a time so a
-     * silently-dropped nested selection can be pinned to the single field that caused it.
-     */
-    private void logBuildingCosts(OkHttpClient http, String gameworldHost) {
-        SharedPreferences prefs = statePrefs();
-        long now = System.currentTimeMillis();
-        if (now - prefs.getLong(KEY_BUILD_COST_LOGGED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
-            return;
-        }
-        prefs.edit().putLong(KEY_BUILD_COST_LOGGED_AT, now).apply();
-        String[] variants = {
-                "villages { id name buildingSlots { id } }",
-                "villages { id name buildEvents { id buildingTypeId aspiredLevel buildCostObject } }",
-                "villages { id name buildEvents { id buildingTypeId aspiredLevel upgradeCostObject } }",
-        };
-        for (String selection : variants) {
-            try {
-                JSONObject resp = runQuery(http, gameworldHost, selection);
-                JSONObject data = resp.optJSONObject("data");
-                JSONArray errors = resp.optJSONArray("errors");
-                if (data != null) {
-                    Log.i(TAG, "building costs ok [" + selection + "]: " + cut(data.toString(), 2500));
-                }
-                if (errors != null) {
-                    Log.i(TAG, "building costs errors [" + selection + "]: " + cut(errors.toString(), 1500));
-                }
-                if (data == null && errors == null) {
-                    Log.i(TAG, "building costs empty response [" + selection + "]");
-                }
-            } catch (Exception e) {
-                Log.i(TAG, "building costs request failed [" + selection + "]: " + e);
-            }
-        }
-    }
-
-    /**
-     * Diagnostic only, at most every 30 minutes: logs the game's marketplace offer shape, so a market
-     * price advisor can be built on real field names. Nothing is shown on any screen yet.
-     */
-    private void logMarketplace(OkHttpClient http, String gameworldHost) {
-        SharedPreferences prefs = statePrefs();
-        long now = System.currentTimeMillis();
-        if (now - prefs.getLong(KEY_MARKET_LOGGED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
-            return;
-        }
-        prefs.edit().putLong(KEY_MARKET_LOGGED_AT, now).apply();
-        String[] variants = {
-                "marketplaceOwnOffer { id resourcePricesById }",
-                "marketplaceOffer { id resourcePricesById }",
-        };
-        runDiagnosticVariants("marketplace", http, gameworldHost, variants);
-        logSchema(http, gameworldHost, "MarketplaceOffer", "fields");
-    }
-
-    /**
-     * Tries each selection in turn, logging both the data and, when present, the errors a GraphQL
-     * response can carry alongside it (a query can partially succeed: valid fields resolve while an
-     * invalid one next to them is reported as an error, instead of failing the whole request). Stops at
-     * the first variant that comes back with data and no errors; otherwise tries them all.
-     */
-    private void runDiagnosticVariants(String label, OkHttpClient http, String gameworldHost, String[] variants) {
-        for (String selection : variants) {
-            try {
-                JSONObject resp = runQuery(http, gameworldHost, selection);
-                JSONObject data = resp.optJSONObject("data");
-                JSONArray errors = resp.optJSONArray("errors");
-                if (data != null) {
-                    Log.i(TAG, label + " ok [" + selection + "]: " + cut(data.toString(), 2500));
-                }
-                if (errors != null) {
-                    Log.i(TAG, label + " errors [" + selection + "]: " + cut(errors.toString(), 1500));
-                }
-                if (data == null && errors == null) {
-                    Log.i(TAG, label + " empty response [" + selection + "]");
-                }
-                if (data != null && errors == null) {
-                    return; // clean success, no need to try the other guesses
-                }
-            } catch (Exception e) {
-                Log.i(TAG, label + " request failed [" + selection + "]: " + e);
-            }
         }
     }
 
@@ -1332,6 +1286,9 @@ public class NotifierWorker extends Worker {
                 + " atHome=" + result.next.atHome);
     }
 
+    private static final String KEY_CELEBRATIONS_NEXT_READ = "celebrations_next_read";
+    /** The auction house is read every 8-14 minutes (deals are auctions ending within 15). */
+    private static final String KEY_SILVER_NEXT_READ = "silver_next_read";
     private static final String KEY_SILVER_SEEN = "silver_seen_at";
     private static final String KEY_SILVER_DEALS = "silver_deals_announced";
     private static final String KEY_SILVER_BIDS = "silver_auto_bids";
@@ -1353,8 +1310,12 @@ public class NotifierWorker extends Worker {
             }
         };
         long now = System.currentTimeMillis();
-        JSONObject snap = SilverData.readForAlerts(reader, now);
         SharedPreferences state = statePrefs();
+        if (now < state.getLong(KEY_SILVER_NEXT_READ, 0)) {
+            return;
+        }
+        state.edit().putLong(KEY_SILVER_NEXT_READ, now + CheckPacing.between(random, 8 * 60_000L, 14 * 60_000L)).apply();
+        JSONObject snap = SilverData.readForAlerts(reader, now);
         SharedPreferences actions = getApplicationContext().getSharedPreferences(ActionSender.PREFS,
                 Context.MODE_PRIVATE);
 
@@ -1394,6 +1355,14 @@ public class NotifierWorker extends Worker {
             if (autoBid && !autoBids.containsKey(a.id)) {
                 long amount = SilverActions.autoBidAmount(d, percent, cap, silver);
                 if (amount > 0) {
+                    // A person reads the offer before bidding: wait a few random seconds first.
+                    ActionClient.Settings sw = ActionSender.settings(getApplicationContext());
+                    try {
+                        Thread.sleep(sw.masterOn && !sw.dryRun ? CheckPacing.between(random, 5_000L, 30_000L) : 0L);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                     ActionClient.Result r = ActionSender.send(getApplicationContext(), http, gameworldHost,
                             SilverActions.bid(a.id, amount, "Bid up to " + amount + " silver on "
                                     + SilverData.itemText(a.name, a.amount)), true);
@@ -1435,56 +1404,6 @@ public class NotifierWorker extends Worker {
         }
     }
 
-    /**
-     * Diagnostic only, at most every 30 minutes: writes the player's farm lists, and the field names the
-     * game's server knows for them, to the log. It sends nothing to the game and shows nothing. It exists
-     * so a farm list screen can be built on what the game really returns instead of on guesses.
-     */
-    private void logFarmLists(OkHttpClient http, String gameworldHost) {
-        SharedPreferences prefs = statePrefs();
-        long now = System.currentTimeMillis();
-        if (now - prefs.getLong(KEY_FARM_LOGGED_AT, 0) < TimeUnit.MINUTES.toMillis(30)) {
-            return;
-        }
-        prefs.edit().putLong(KEY_FARM_LOGGED_AT, now).apply();
-        String fields = "id name slotsAmount runningRaidsAmount lastStartedTime isExpanded";
-        String[] variants = {
-                "farmLists { " + fields + " }",
-                "farmLists(filter: {}) { " + fields + " }",
-                "farmLists { id name }",
-        };
-        for (String selection : variants) {
-            try {
-                JSONObject resp = runQuery(http, gameworldHost, selection);
-                JSONObject data = resp.optJSONObject("data");
-                if (data != null) {
-                    Log.i(TAG, "farm lists ok [" + selection + "]: " + cut(data.toString(), 3500));
-                    break;
-                }
-                Log.i(TAG, "farm lists query failed [" + selection + "]: " + errorSummary(resp));
-            } catch (Exception e) {
-                Log.i(TAG, "farm lists request failed [" + selection + "]: " + e);
-            }
-        }
-        logSchema(http, gameworldHost, "FarmList", "fields");
-        logSchema(http, gameworldHost, "FarmListsFilter", "inputFields");
-        logSchema(http, gameworldHost, "FarmSlot", "fields");
-    }
-
-    /** Logs the names of a GraphQL type's fields, if the server answers introspection questions. */
-    private void logSchema(OkHttpClient http, String gameworldHost, String type, String listField) {
-        try {
-            String body = "{ \"query\": \"query { __type(name: \\\"" + type + "\\\") { " + listField + " { name } } }\" }";
-            Request req = new Request.Builder()
-                    .url(gameworldHost + "/api/v1/graphql")
-                    .post(TravianApi.jsonBody(body))
-                    .build();
-            Log.i(TAG, "schema " + type + ": " + cut(TravianApi.executeJson(http, req).toString(), 1500));
-        } catch (Exception e) {
-            Log.i(TAG, "schema " + type + " not available: " + e);
-        }
-    }
-
     private static String cut(String text, int max) {
         return text.length() > max ? text.substring(0, max) + "..." : text;
     }
@@ -1514,7 +1433,7 @@ public class NotifierWorker extends Worker {
                         AttackAlerts.reminderText(alert, now), alert.key.hashCode() + 1, NotificationCompat.PRIORITY_MAX);
                 reminded.put(alert.key, alert.arrivalMs);
                 reminders++;
-            } else {
+            } else if (NotifierSettings.isEnabled(getApplicationContext(), NotificationKind.ATTACK_REMINDER)) {
                 noteWake("attack reminder " + alert.key, alert.arrivalMs - AttackAlerts.REMINDER_WAKE_BEFORE_MS);
             }
         }
@@ -1572,7 +1491,7 @@ public class NotifierWorker extends Worker {
         Set<String> currentKeys = new HashSet<String>();
         for (ArrivalAlerts.Arrival a : current) {
             currentKeys.add(a.key);
-            noteFinish("arrival " + a.key, a.arrivalMs);
+            noteFinish(NotificationKind.forArrivalKey(a.key), "arrival " + a.key, a.arrivalMs);
         }
         int notified = 0;
         for (Map.Entry<String, ArrivalAlerts.Arrival> entry : tracked.entrySet()) {
@@ -1592,11 +1511,11 @@ public class NotifierWorker extends Worker {
         Log.i(TAG, "friendly arrivals in flight: " + current.size() + " (" + notified + " arrived)");
     }
 
-    /** Wake the chain at this time (if it's still ahead), without treating it as a finish time. */
+    /** Wake the chain at this attack moment (reminder or escape; kept on time, also in quiet hours). */
     private void noteWake(String label, long wakeMs) {
         if (wakeMs > System.currentTimeMillis()) {
             Log.i(TAG, label + " wake in " + ((wakeMs - System.currentTimeMillis()) / 1000) + "s");
-            nextWakeMs = Math.min(nextWakeMs, wakeMs);
+            attackWakeMs = Math.min(attackWakeMs, wakeMs);
         }
     }
 
@@ -1697,7 +1616,7 @@ public class NotifierWorker extends Worker {
             JSONObject unit = ev.optJSONObject("unit");
             Log.i(TAG, kind + " event " + id + " unit id=" + (unit != null ? unit.optInt("id", -1) : -1)
                     + " tribe=" + currentTribeId + " raw lastUnitReadyAt=" + ev.optLong("lastUnitReadyAt", 0));
-            noteFinish(kind + " " + id, finishMs);
+            noteFinish(NotificationKind.forTrackedKind(kind), kind + " " + id, finishMs);
         }
     }
 

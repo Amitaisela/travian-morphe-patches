@@ -20,7 +20,8 @@ val travianNotifierPatch = bytecodePatch(
         "home screen where you switch each type of notification on or off, see what is building and training, and see your recent ones. Uses the session you're already logged in " +
         "with in the game — no separate login, no password ever handled by this patch. Checks " +
         "run quietly in the background: one is scheduled for just after each build/training is " +
-        "due to finish, plus a regular check every 5 minutes (Android may delay background " +
+        "due to finish, plus a regular check every 4 to 7 minutes (every 20 to 40 during your quiet " +
+        "hours, and none while the game itself is open; Android may delay background " +
         "work slightly). Nothing is shown unless something actually finished. The first time " +
         "you open the app it asks once for " +
         "notification permission and to exempt the app from battery optimization, so the " +
