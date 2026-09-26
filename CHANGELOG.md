@@ -1,3 +1,9 @@
+## [1.23.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.23.0...v1.23.1) (2026-09-26)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** ask for the troop send token with PUT, like the game ([955960d](https://github.com/Amitaisela/travian-morphe-patches/commit/955960d7a6e8a90a1d67ec12da790d9993fe56fc))
+
 ## [1.23.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.22.1...v1.23.0) (2026-09-26)
 
 ### ✨ New Features
