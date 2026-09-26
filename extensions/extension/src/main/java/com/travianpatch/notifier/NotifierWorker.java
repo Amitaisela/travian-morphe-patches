@@ -255,6 +255,7 @@ public class NotifierWorker extends Worker {
         AlertStatus status = new AlertStatus(System.currentTimeMillis(), note,
                 statBuilds, statTrainings, statAttacks, statArrivals);
         statePrefs().edit().putString(KEY_STATUS, status.toJson()).apply();
+        ToolsWidget.update(getApplicationContext());
     }
 
     /** Records a finish time from the server: schedules around it, or flags server lag if it just passed. */
@@ -1247,10 +1248,17 @@ public class NotifierWorker extends Worker {
         saveVillageResources(villages);
         Set<String> alerted = new HashSet<String>(statePrefs().getStringSet(KEY_STORAGE_ALERTED, new HashSet<String>()));
         int warned = 0;
+        long nowMs = System.currentTimeMillis();
+        long soonestFull = 0;
+        String soonestWhat = null;
         for (int i = 0; i < villages.length(); i++) {
             JSONObject village = villages.getJSONObject(i);
             List<ResourceAlerts.Reading> fresh = new ArrayList<ResourceAlerts.Reading>();
             for (ResourceAlerts.Reading r : ResourceAlerts.read(village)) {
+                if (r.etaMs >= 0 && (soonestFull == 0 || nowMs + r.etaMs < soonestFull)) {
+                    soonestFull = nowMs + r.etaMs;
+                    soonestWhat = r.label + (villages.length() > 1 ? " in " + village.optString("name", "a village") : "");
+                }
                 if (ResourceAlerts.atRisk(r)) {
                     if (alerted.add(r.key)) {
                         fresh.add(r);
@@ -1282,7 +1290,9 @@ public class NotifierWorker extends Worker {
                 warned++;
             }
         }
-        statePrefs().edit().putStringSet(KEY_STORAGE_ALERTED, alerted).apply();
+        statePrefs().edit().putStringSet(KEY_STORAGE_ALERTED, alerted)
+                .putLong(ToolsWidget.KEY_STORAGE_FULL_AT, soonestFull)
+                .putString(ToolsWidget.KEY_STORAGE_FULL_WHAT, soonestWhat).apply();
         Log.i(TAG, "storage checked: villages=" + villages.length() + " warned=" + warned + " tracked=" + alerted.size());
     }
 
