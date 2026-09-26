@@ -1,3 +1,9 @@
+## [1.24.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.23.1...v1.24.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** send the hero to an oasis for real ([ed413c4](https://github.com/Amitaisela/travian-morphe-patches/commit/ed413c4cb319bf0b214d1f33ce91112b5d2f0bef))
+
 ## [1.23.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.23.0...v1.23.1) (2026-09-26)
 
 ### 🐛 Bug Fixes
