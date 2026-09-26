@@ -31,7 +31,13 @@ enum NotificationKind {
     REINFORCEMENT_ARRIVED("reinforcement_arrived", "Reinforcements arrived",
             "Troops sent to help you have arrived.", false, true),
     TROOPS_RETURNED("troops_returned", "Your troops are back",
-            "Your own troops returned home.", false, true);
+            "Your own troops returned home.", false, true),
+    SILVER_OUTBID("silver_outbid", "Silver: outbid",
+            "Someone outbid you at the auction house.", false, true),
+    SILVER_AUCTION("silver_auction", "Silver: auction won or sold",
+            "You won an auction, or one of your items sold.", false, true),
+    SILVER_DEAL("silver_deal", "Silver: cheap auction ending soon",
+            "An auction ends soon at well under the usual price (limits on the Silver tab).", false, true);
 
     /** Stable key used in storage; never rename an existing one. */
     final String id;

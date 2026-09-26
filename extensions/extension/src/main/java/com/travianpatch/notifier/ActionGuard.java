@@ -19,6 +19,8 @@ final class ActionGuard {
             java.util.regex.Pattern.compile("/village/change-current"),
             java.util.regex.Pattern.compile("/village/[0-9]{1,12}/celebrations/start"),
             java.util.regex.Pattern.compile("/troop/send"),
+            java.util.regex.Pattern.compile("/hero/auction/bid"),
+            java.util.regex.Pattern.compile("/hero/auction/sell-item"),
     };
     static final long DEDUPE_MS = 60_000L;
 

@@ -164,9 +164,10 @@ final class ActionSender {
                 now = System.currentTimeMillis();
             }
         }
-        ActionClient.Result result = TroopSend.KIND.equals(action.kind)
+        boolean troops = TroopSend.KIND.equals(action.kind);
+        ActionClient.Result result = troops || SilverActions.SELL.equals(action.kind)
                 ? ActionClient.sendTwoStep(transport, action, automated, settings, now, nextAttack, recent,
-                TroopSend.STEP_ONE_ONLY)
+                troops ? TroopSend.STEP_ONE_ONLY : SilverActions.SELL_STEP_ONE_ONLY)
                 : ActionClient.sendWith(transport, action, automated, settings, now, nextAttack, recent);
         if (result.sessionExpired) {
             state.edit().remove(NotifierWorker.KEY_WORLD_HOST).remove(NotifierWorker.KEY_WORLD_TOKEN)

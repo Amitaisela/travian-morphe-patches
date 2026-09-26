@@ -719,9 +719,17 @@ public class NotifierWorker extends Worker {
                 JSONObject response = runRootQuery(http, gameworldHost, query);
                 logProbePieces(n, response.toString());
                 JSONObject player = dataObject(response, "ownPlayer");
-                JSONArray lists = player == null ? null : player.optJSONArray("farmLists");
-                if (lists != null && lists.length() > 0 && lists.optJSONObject(0) != null) {
-                    queries.add(DataProbe.farmSlotsQuery(lists.optJSONObject(0).optLong("id")));
+                JSONObject auctions = player == null ? null : player.optJSONObject("auctions");
+                if (auctions != null && auctions.optJSONObject("items") != null) {
+                    queries.addAll(DataProbe.sellingProbes(response.optJSONObject("data")));
+                }
+                JSONObject hero = player == null ? null : player.optJSONObject("hero");
+                if (hero != null && hero.optJSONArray("inventory") != null) {
+                    String selling = SilverData.sellingQuery(SilverData.bag(new JSONObject().put("bag",
+                            response.optJSONObject("data"))), true);
+                    if (selling != null) {
+                        queries.add(selling);
+                    }
                 }
             } catch (Exception e) {
                 Log.i(TAG, "DPROBE " + n + " failed: " + e);
@@ -928,6 +936,11 @@ public class NotifierWorker extends Worker {
             checkHero(http, gameworldHost);
         } catch (Exception e) {
             Log.w(TAG, "hero data check failed: " + e);
+        }
+        try {
+            checkSilver(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "silver check failed: " + e);
         }
         try {
             logFarmLists(http, gameworldHost);
@@ -1196,6 +1209,107 @@ public class NotifierWorker extends Worker {
         Log.i(TAG, "hero checked: " + result.events.size() + " change(s), alive=" + result.next.alive
                 + " health=" + result.next.health + " adventures=" + result.next.adventures
                 + " atHome=" + result.next.atHome);
+    }
+
+    private static final String KEY_SILVER_SEEN = "silver_seen_at";
+    private static final String KEY_SILVER_DEALS = "silver_deals_announced";
+    private static final String KEY_SILVER_BIDS = "silver_auto_bids";
+    private static final String KEY_SILVER_SOLD_AT = "silver_auto_sell_at";
+
+    /**
+     * Silver and the auction house, every check: announces new outbid / won / sold entries from the game's
+     * silver log (the first look only remembers where the log stands), announces cheap auctions ending soon
+     * (once per auction), and - only when the user switched them on - bids on those deals and puts bag items
+     * up for sale when the game's price history says prices are high. Bids and sales go through ActionSender
+     * (master switch, practice mode, guard, log).
+     */
+    private void checkSilver(OkHttpClient http, final String gameworldHost) throws Exception {
+        final OkHttpClient client = http;
+        SilverData.Reader reader = new SilverData.Reader() {
+            @Override
+            public JSONObject query(String query) throws Exception {
+                return runRootQuery(client, gameworldHost, query);
+            }
+        };
+        long now = System.currentTimeMillis();
+        JSONObject snap = SilverData.readForAlerts(reader, now);
+        SharedPreferences state = statePrefs();
+        SharedPreferences actions = getApplicationContext().getSharedPreferences(ActionSender.PREFS,
+                Context.MODE_PRIVATE);
+
+        if (snap.optJSONObject("me") != null) {
+            List<SilverData.Record> records = SilverData.records(snap);
+            long seen = state.getLong(KEY_SILVER_SEEN, 0);
+            for (SilverData.Event e : SilverData.newEvents(records, seen)) {
+                postNotification(e.kind, "Travian: Legends", e.text, ("silver:" + e.text).hashCode(),
+                        NotificationCompat.PRIORITY_HIGH);
+            }
+            long newest = SilverData.newestRecord(records);
+            // The first look stores "now" when the log is empty, so later entries count as new.
+            state.edit().putLong(KEY_SILVER_SEEN, Math.max(seen, newest > 0 ? newest : now)).apply();
+        } else {
+            Log.i(TAG, "silver: no wallet/log (" + snap.optString("meError") + ")");
+        }
+
+        int percent = actions.getInt(SilverActions.KEY_DEAL_PERCENT, SilverData.DEFAULT_DEAL_PERCENT);
+        int minutes = actions.getInt(SilverActions.KEY_DEAL_MINUTES, SilverData.DEFAULT_DEAL_MINUTES);
+        List<SilverData.Deal> deals = SilverData.deals(SilverData.buy(snap), SilverData.market(snap),
+                SilverData.myId(snap), now, percent, minutes);
+        Map<String, Long> announced = loadLongMap(KEY_SILVER_DEALS);
+        Map<String, Long> autoBids = loadLongMap(KEY_SILVER_BIDS);
+        boolean autoBid = actions.getBoolean(SilverActions.KEY_AUTO_BID, false);
+        long cap = actions.getLong(SilverActions.KEY_BID_CAP, 0);
+        long silver = SilverData.silver(snap);
+        for (SilverData.Deal d : deals) {
+            SilverData.Auction a = d.auction;
+            if (!announced.containsKey(a.id)) {
+                announced.put(a.id, a.finishedMs);
+                postNotification(NotificationKind.SILVER_DEAL, "Cheap auction ending soon",
+                        SilverData.itemText(a.name, a.amount) + " at " + a.price + " silver, " + d.percentUnder
+                                + "% under the usual " + d.normalTotal() + ". Ends in "
+                                + AlertStatus.duration(a.finishedMs - now) + ".",
+                        ("silverdeal:" + a.id).hashCode(), NotificationCompat.PRIORITY_DEFAULT);
+            }
+            if (autoBid && !autoBids.containsKey(a.id)) {
+                long amount = SilverActions.autoBidAmount(d, percent, cap, silver);
+                if (amount > 0) {
+                    autoBids.put(a.id, a.finishedMs);
+                    ActionClient.Result r = ActionSender.send(getApplicationContext(), http, gameworldHost,
+                            SilverActions.bid(a.id, amount, "Bid up to " + amount + " silver on "
+                                    + SilverData.itemText(a.name, a.amount)), true);
+                    if ("SENT".equals(r.outcome)) {
+                        silver -= amount;
+                    }
+                }
+            }
+        }
+        pruneOld(announced, now);
+        pruneOld(autoBids, now);
+        saveLongMap(KEY_SILVER_DEALS, announced);
+        saveLongMap(KEY_SILVER_BIDS, autoBids);
+        Log.i(TAG, "silver checked: silver=" + silver + " deals=" + deals.size()
+                + (snap.has("buyError") ? " buyError=" + snap.optString("buyError") : "")
+                + (snap.has("marketError") ? " marketError=" + snap.optString("marketError") : ""));
+
+        if (actions.getBoolean(SilverActions.KEY_AUTO_SELL, false)
+                && now - state.getLong(KEY_SILVER_SOLD_AT, 0) > TimeUnit.HOURS.toMillis(1)) {
+            state.edit().putLong(KEY_SILVER_SOLD_AT, now).apply();
+            if (SilverActions.SELL_STEP_ONE_ONLY) {
+                Log.i(TAG, "silver: automatic selling waits for the one-time Sell test on the Silver tab");
+                return;
+            }
+            JSONObject full = SilverData.readAll(reader, now);
+            int running = 0;
+            for (SilverData.Auction s : SilverData.mySales(full)) {
+                if (s.running()) {
+                    running++;
+                }
+            }
+            for (SilverData.BagItem it : SilverActions.toSell(full, running, SilverData.maxSales(full))) {
+                ActionSender.send(getApplicationContext(), http, gameworldHost, SilverActions.sell(it.id,
+                        it.amountToSell(), "Sell " + SilverData.itemText(it.name, it.amountToSell())), true);
+            }
+        }
     }
 
     /**

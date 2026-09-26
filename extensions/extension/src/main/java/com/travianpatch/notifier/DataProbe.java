@@ -4,16 +4,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * One-off, read-only look at game data the next features need (round 3: celebrations, hero oasis finder,
- * troop escape, resource balancing). Every field name comes from the game's own client (its GraphQL
- * types); this logs what the server really answers so the features are built on live shapes. Only
- * "query" requests: nothing is changed in the game. Pure logic (no Android APIs) so it can be checked
- * off-device.
+ * One-off, read-only look at game data the next features need (round 4: silver and the hero auction house).
+ * Every field name comes from the game's own client (its GraphQL types); this logs what the server really
+ * answers so the silver features can be checked against live shapes (price per item or per lot, history
+ * order, fee format, exchange rates). Only "query" requests: nothing is changed in the game. Pure logic (no
+ * Android APIs) so it can be checked off-device.
  */
 final class DataProbe {
 
     /** Set when the probe starts, so it never runs a second time. */
-    static final String KEY_DONE = "data_probe_done_v3";
+    static final String KEY_DONE = "data_probe_done_v4";
     /** Longest slice of one response that is logged. */
     static final int MAX_LOGGED_CHARS = 16000;
     /** Android cuts a log line near 4 KB, so long text is logged in pieces of this size. */
@@ -31,31 +31,43 @@ final class DataProbe {
     private static final String RESOURCES = "{ lumber clay iron crop }";
     private static final String UNITS = "{ t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 }";
 
+    /** The silver reads the Silver tab uses, each once, plus the game's own sell-fee and exchange settings. */
     static List<String> queries(String villageId, int x, int y) {
         List<String> q = new ArrayList<String>();
-        // Small unit table (the round-2 one was cut by the phone's log): animal (nature) stats for the oasis finder.
-        q.add("query { bootstrapData { tribes { id units { id attackPower defencePowerAgainstInfantry "
-                + "defencePowerAgainstCavalry velocity carry } } } }");
-        String village = "query { ownVillage(id: " + villageId + ") { ";
-        q.add(village + "hasRallyPoint townHall { celebrations { type cp duration canBeStarted celebrationCost "
-                + RESOURCES + " } ongoingCelebrations { type finishedAt } smallCelebrationMaxCP greatCelebrationMaxCP "
-                + "lastCelebrationTimestamp } } }");
-        q.add(village + "heroMansion { withinReachOases { id x y type } annexedOases { id } } } }");
-        q.add(village + "marketplace { merchantsInfo { total capacity offering underway available capacityAvailable "
-                + "capacityTotal } } } }");
-        q.add(village + "troops { ownTroopsAtTown { units " + UNITS + " } } troopOverview { "
-                + "incomingAttacksRaidsPower { attack defence amount } ownTroopsPower { attack defence amount } } } }");
-        q.add("query { ownPlayer { hero { health speed isAlive status { status arrivalAt } "
-                + "attributes { code name value } } } }");
-        q.add(oasisGrid(x, y, true));
-        q.add(oasisGrid(x, y, false));
-        // mapBlock failed ("Unexpected error") with a 7x7 box around the village; try a 10-aligned box once.
-        int bx = Math.floorDiv(x, 10) * 10, by = Math.floorDiv(y, 10) * 10;
-        q.add("query { mapBlock(xMin: " + bx + ", yMin: " + by + ", xMax: " + (bx + 9) + ", yMax: " + (by + 9)
-                + ") { xMin yMin xMax yMax oases { id x y type } } }");
-        q.add("query { ownPlayer { farmLists { id name ownerVillage { id } defaultTroop " + UNITS + " slotsAmount "
-                + "runningRaidsAmount isExpanded sortIndex lastStartedTime useShip onlyLosses } } }");
+        q.add(SilverData.ME_QUERY);
+        q.add(SilverData.CONFIG_QUERY);
+        q.add(SilverData.MARKET_QUERY);
+        q.add(SilverData.BUY_QUERY);
+        q.add(SilverData.BUY_QUERY_PLAIN);
+        q.add(SilverData.BIDS_QUERY);
+        q.add(SilverData.SELLS_QUERY);
+        q.add(SilverData.BAG_QUERY);
+        q.add("query { ownPlayer { auctions { silverAccounting { silverInAuctions { time reason silverChange "
+                + "itemAmount item { typeId name rarity } } } } } }");
         return q;
+    }
+
+    /**
+     * The game's price history for the first few item types of a market overview answer (the data object),
+     * asked with and without the rarity argument; empty when the overview had no items.
+     */
+    static List<String> sellingProbes(org.json.JSONObject marketData) throws Exception {
+        List<String> out = new ArrayList<String>();
+        java.util.Map<String, SilverData.MarketItem> market = SilverData.market(
+                new org.json.JSONObject().put("market", marketData));
+        List<SilverData.BagItem> fake = new ArrayList<SilverData.BagItem>();
+        for (SilverData.MarketItem m : market.values()) {
+            if (fake.size() >= 3) {
+                break;
+            }
+            fake.add(new SilverData.BagItem(1, m.typeId, m.name, m.rarity, 1, true, false, null));
+        }
+        String withRarity = SilverData.sellingQuery(fake, true);
+        if (withRarity != null) {
+            out.add(withRarity);
+            out.add(SilverData.sellingQuery(fake, false));
+        }
+        return out;
     }
 
     /**
