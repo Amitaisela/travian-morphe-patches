@@ -1,3 +1,10 @@
+## [1.25.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.24.0...v1.25.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** quiet hours stop every automatic action ([4e6348d](https://github.com/Amitaisela/travian-morphe-patches/commit/4e6348de8ec03f366ecc812c23d71ea460b92ca6))
+* **Travian: Legends:** troop escape to an empty oasis before an attack (off by default) ([71b95a2](https://github.com/Amitaisela/travian-morphe-patches/commit/71b95a28899e7f8f785c624f2a68f215decb957c))
+
 ## [1.24.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.23.1...v1.24.0) (2026-09-26)
 
 ### ✨ New Features
