@@ -1,3 +1,9 @@
+## [1.22.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.21.0...v1.22.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** Oases tab and the game's two-step troop send (test step) ([5cd3970](https://github.com/Amitaisela/travian-morphe-patches/commit/5cd3970bef568d4a3a1c8de7e01057f8added22d))
+
 ## [1.21.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.20.1...v1.21.0) (2026-09-26)
 
 ### ✨ New Features
