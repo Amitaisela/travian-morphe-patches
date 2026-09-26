@@ -81,10 +81,11 @@ final class ActionSender {
                                     boolean automated) {
         ActionClient.Transport transport = new ActionClient.Transport() {
             @Override
-            public ActionClient.Response post(String path, String json, String nonce) throws Exception {
+            public ActionClient.Response send(String method, String path, String json, String nonce)
+                    throws Exception {
                 Request.Builder b = new Request.Builder()
                         .url(host + "/api/v1" + path)
-                        .post(TravianApi.jsonBody(json));
+                        .method(method, TravianApi.jsonBody(json));
                 if (nonce != null) {
                     b.header(ActionClient.NONCE_HEADER, nonce);
                 }
@@ -149,7 +150,7 @@ final class ActionSender {
                 // Open the village the way the game does and check its fresh answer before going on.
                 String why;
                 try {
-                    ActionClient.Response view = transport.post("/graphql", ActionSteps.villageViewBody(action.villageId), null);
+                    ActionClient.Response view = transport.send("POST", "/graphql", ActionSteps.villageViewBody(action.villageId), null);
                     why = view.code == 200 ? ActionSteps.check(view.body, action)
                             : "the game didn't open the village (HTTP " + view.code + ")";
                 } catch (Exception e) {

@@ -17,8 +17,11 @@ final class ActionClient {
     }
 
     interface Transport {
-        /** nonce: the one-time token for the second step of a two-step send (x-nonce header), or null. */
-        Response post(String path, String json, String nonce) throws Exception;
+        /**
+         * method: the HTTP method (POST for actions; PUT for step 1 of a two-step send, as the game's own
+         * client does). nonce: the one-time token for step 2 (x-nonce header), or null.
+         */
+        Response send(String method, String path, String json, String nonce) throws Exception;
     }
 
     static final class Response {
@@ -113,7 +116,7 @@ final class ActionClient {
         recentKeys.put(action.dedupeKey, nowMs);
         Response response;
         try {
-            response = transport.post(action.path, action.body.toString(), null);
+            response = transport.send("POST", action.path, action.body.toString(), null);
         } catch (Exception e) {
             return new Result("FAILED", 0, "no answer from the game (" + e.getClass().getSimpleName() + ")", false, null);
         }
@@ -121,8 +124,9 @@ final class ActionClient {
     }
 
     /**
-     * A two-step send (troops): step 1 asks the game for a one-time token, step 2 repeats the same body with
-     * it in the x-nonce header. stepOneOnly stops after step 1 and reports what the game answered (outcome
+     * A two-step send (troops): step 1 (PUT, like the game's GetOneTimeToken calls) asks the game for a
+     * one-time token, step 2 (POST, like its ConfirmAction calls) repeats the same body with it in the x-nonce
+     * header. stepOneOnly stops after step 1 and reports what the game answered (outcome
      * CHECKED), for the first watched try while the token's shape is not yet seen live.
      */
     static Result sendTwoStep(Transport transport, GameAction action, boolean automated, Settings settings,
@@ -134,7 +138,7 @@ final class ActionClient {
         recentKeys.put(action.dedupeKey, nowMs);
         Response first;
         try {
-            first = transport.post(action.path, action.body.toString(), null);
+            first = transport.send("PUT", action.path, action.body.toString(), null);
         } catch (Exception e) {
             return new Result("FAILED", 0, "no answer from the game (" + e.getClass().getSimpleName() + ")", false, null);
         }
@@ -143,8 +147,8 @@ final class ActionClient {
         }
         String nonce = first.headers == null ? null : first.headers.get(NONCE_HEADER);
         if (stepOneOnly) {
-            return new Result("CHECKED", first.code, "step 1 only: HTTP " + first.code + ", token "
-                    + (nonce == null ? "not in headers" : "in x-nonce header") + ", headers " + first.headers.keySet()
+            return new Result("CHECKED", first.code, "step 1 only (PUT): HTTP " + first.code + ", token "
+                    + (nonce == null ? "not in headers" : "in x-nonce header") + ", headers " + headerText(first.headers)
                     + ", answer " + cut(first.body, 600), false, first.body);
         }
         if (nonce == null || nonce.isEmpty()) {
@@ -154,7 +158,7 @@ final class ActionClient {
         }
         Response second;
         try {
-            second = transport.post(action.path, action.body.toString(), nonce);
+            second = transport.send("POST", action.path, action.body.toString(), nonce);
         } catch (Exception e) {
             return new Result("FAILED", 0, "no answer to the confirm step (" + e.getClass().getSimpleName() + ")",
                     false, null);
@@ -197,6 +201,22 @@ final class ActionClient {
                     response.body);
         }
         return new Result("SENT", response.code, message == null ? "" : message, false, response.body);
+    }
+
+    /** Header names with values cut short; cookie values are left out. */
+    static String headerText(Map<String, String> headers) {
+        if (headers == null) {
+            return "{}";
+        }
+        StringBuilder b = new StringBuilder("{");
+        for (Map.Entry<String, String> e : new java.util.TreeMap<String, String>(headers).entrySet()) {
+            if (b.length() > 1) {
+                b.append(", ");
+            }
+            String v = e.getKey().contains("cookie") ? "(hidden)" : cut(e.getValue(), 80);
+            b.append(e.getKey()).append('=').append(v);
+        }
+        return b.append('}').toString();
     }
 
     private static String cut(String s, int max) {
