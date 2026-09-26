@@ -4,7 +4,7 @@ import org.json.JSONObject;
 
 /** One request that changes something in the game: where it goes, what it sends, and how it is shown. */
 final class GameAction {
-    /** BUILD, TRAIN, RESEARCH, IMPROVE, FARM_SEND, VILLAGE or CELEBRATE. */
+    /** BUILD, TRAIN, RESEARCH, IMPROVE, FARM_SEND, VILLAGE, CELEBRATE or TROOPS. */
     final String kind;
     final String villageId;
     /** Path under the game world's API base, e.g. /building/build/26. */

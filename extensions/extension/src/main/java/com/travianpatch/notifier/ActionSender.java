@@ -55,19 +55,47 @@ final class ActionSender {
         return send(ctx, TravianApi.newClient(jar), host, action, false);
     }
 
+    /**
+     * A read-only GraphQL query from a screen, with the session the background check cached. Returns the
+     * game's JSON answer, or null when there is no session yet. Must be called off the main thread.
+     */
+    static JSONObject queryFromScreen(Context ctx, String query) throws Exception {
+        if (!query.trim().startsWith("query")) {
+            throw new IllegalArgumentException("only reads");
+        }
+        SimpleCookieJar jar = new SimpleCookieJar();
+        SharedPreferences state = ctx.getSharedPreferences(NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE);
+        String host = NotifierWorker.seedWorldToken(state, jar);
+        if (host == null) {
+            return null;
+        }
+        Request req = new Request.Builder()
+                .url(host + "/api/v1/graphql")
+                .post(TravianApi.jsonBody(new JSONObject().put("query", query).toString()))
+                .build();
+        return TravianApi.executeJson(TravianApi.newClient(jar), req);
+    }
+
     /** From the background worker, with its own signed-in client. */
     static ActionClient.Result send(Context ctx, final OkHttpClient http, final String host, GameAction action,
                                     boolean automated) {
         ActionClient.Transport transport = new ActionClient.Transport() {
             @Override
-            public ActionClient.Response post(String path, String json) throws Exception {
-                Request req = new Request.Builder()
+            public ActionClient.Response post(String path, String json, String nonce) throws Exception {
+                Request.Builder b = new Request.Builder()
                         .url(host + "/api/v1" + path)
-                        .post(TravianApi.jsonBody(json))
-                        .build();
-                Response resp = http.newCall(req).execute();
+                        .post(TravianApi.jsonBody(json));
+                if (nonce != null) {
+                    b.header(ActionClient.NONCE_HEADER, nonce);
+                }
+                Response resp = http.newCall(b.build()).execute();
                 try {
-                    return new ActionClient.Response(resp.code(), resp.body() == null ? "" : resp.body().string());
+                    Map<String, String> headers = new HashMap<String, String>();
+                    for (String name : resp.headers().names()) {
+                        headers.put(name.toLowerCase(java.util.Locale.ROOT), resp.header(name));
+                    }
+                    return new ActionClient.Response(resp.code(), resp.body() == null ? "" : resp.body().string(),
+                            headers);
                 } finally {
                     resp.close();
                 }
@@ -121,7 +149,7 @@ final class ActionSender {
                 // Open the village the way the game does and check its fresh answer before going on.
                 String why;
                 try {
-                    ActionClient.Response view = transport.post("/graphql", ActionSteps.villageViewBody(action.villageId));
+                    ActionClient.Response view = transport.post("/graphql", ActionSteps.villageViewBody(action.villageId), null);
                     why = view.code == 200 ? ActionSteps.check(view.body, action)
                             : "the game didn't open the village (HTTP " + view.code + ")";
                 } catch (Exception e) {
@@ -136,7 +164,10 @@ final class ActionSender {
                 now = System.currentTimeMillis();
             }
         }
-        ActionClient.Result result = ActionClient.sendWith(transport, action, automated, settings, now, nextAttack, recent);
+        ActionClient.Result result = TroopSend.KIND.equals(action.kind)
+                ? ActionClient.sendTwoStep(transport, action, automated, settings, now, nextAttack, recent,
+                TroopSend.STEP_ONE_ONLY)
+                : ActionClient.sendWith(transport, action, automated, settings, now, nextAttack, recent);
         if (result.sessionExpired) {
             state.edit().remove(NotifierWorker.KEY_WORLD_HOST).remove(NotifierWorker.KEY_WORLD_TOKEN)
                     .remove(NotifierWorker.KEY_WORLD_TOKEN_EXP).commit();

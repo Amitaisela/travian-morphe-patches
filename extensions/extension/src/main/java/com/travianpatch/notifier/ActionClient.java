@@ -17,18 +17,29 @@ final class ActionClient {
     }
 
     interface Transport {
-        Response post(String path, String json) throws Exception;
+        /** nonce: the one-time token for the second step of a two-step send (x-nonce header), or null. */
+        Response post(String path, String json, String nonce) throws Exception;
     }
 
     static final class Response {
         final int code;
         final String body;
+        /** Response headers, names in lower case (empty when not known). */
+        final Map<String, String> headers;
 
         Response(int code, String body) {
+            this(code, body, new java.util.HashMap<String, String>());
+        }
+
+        Response(int code, String body, Map<String, String> headers) {
             this.code = code;
             this.body = body;
+            this.headers = headers;
         }
     }
+
+    /** The header that carries the one-time token of a two-step send (name from the game's client). */
+    static final String NONCE_HEADER = "x-nonce";
 
     /** The user's switches: master automation on/off, practice mode (nothing sent), attack pause on/off and window. */
     static final class Settings {
@@ -68,7 +79,7 @@ final class ActionClient {
     }
 
     static final class Result {
-        /** SENT, DRY_RUN, REFUSED or FAILED. */
+        /** SENT, DRY_RUN, REFUSED, FAILED, or CHECKED (step 1 of a two-step send only). */
         final String outcome;
         final int httpCode;
         final String serverMessage;
@@ -95,6 +106,65 @@ final class ActionClient {
 
     static Result sendWith(Transport transport, GameAction action, boolean automated, Settings settings,
                            long nowMs, long nextAttackLandingMs, Map<String, Long> recentKeys) {
+        Result refused = check(action, automated, settings, nowMs, nextAttackLandingMs, recentKeys);
+        if (refused != null) {
+            return refused;
+        }
+        recentKeys.put(action.dedupeKey, nowMs);
+        Response response;
+        try {
+            response = transport.post(action.path, action.body.toString(), null);
+        } catch (Exception e) {
+            return new Result("FAILED", 0, "no answer from the game (" + e.getClass().getSimpleName() + ")", false, null);
+        }
+        return judge(response);
+    }
+
+    /**
+     * A two-step send (troops): step 1 asks the game for a one-time token, step 2 repeats the same body with
+     * it in the x-nonce header. stepOneOnly stops after step 1 and reports what the game answered (outcome
+     * CHECKED), for the first watched try while the token's shape is not yet seen live.
+     */
+    static Result sendTwoStep(Transport transport, GameAction action, boolean automated, Settings settings,
+                              long nowMs, long nextAttackLandingMs, Map<String, Long> recentKeys, boolean stepOneOnly) {
+        Result refused = check(action, automated, settings, nowMs, nextAttackLandingMs, recentKeys);
+        if (refused != null) {
+            return refused;
+        }
+        recentKeys.put(action.dedupeKey, nowMs);
+        Response first;
+        try {
+            first = transport.post(action.path, action.body.toString(), null);
+        } catch (Exception e) {
+            return new Result("FAILED", 0, "no answer from the game (" + e.getClass().getSimpleName() + ")", false, null);
+        }
+        if (first.code == 401 || first.code == 403) {
+            return new Result("FAILED", first.code, "the game session has expired", true, first.body);
+        }
+        String nonce = first.headers == null ? null : first.headers.get(NONCE_HEADER);
+        if (stepOneOnly) {
+            return new Result("CHECKED", first.code, "step 1 only: HTTP " + first.code + ", token "
+                    + (nonce == null ? "not in headers" : "in x-nonce header") + ", headers " + first.headers.keySet()
+                    + ", answer " + cut(first.body, 600), false, first.body);
+        }
+        if (nonce == null || nonce.isEmpty()) {
+            Result r = judge(first);
+            return new Result("FAILED", first.code, "the game gave no one-time token (" + r.describe()
+                    + "); nothing confirmed", false, first.body);
+        }
+        Response second;
+        try {
+            second = transport.post(action.path, action.body.toString(), nonce);
+        } catch (Exception e) {
+            return new Result("FAILED", 0, "no answer to the confirm step (" + e.getClass().getSimpleName() + ")",
+                    false, null);
+        }
+        return judge(second);
+    }
+
+    /** The guard and practice mode: a Result when the action must not go out, else null. */
+    private static Result check(GameAction action, boolean automated, Settings settings, long nowMs,
+                                long nextAttackLandingMs, Map<String, Long> recentKeys) {
         ActionGuard.Input in = new ActionGuard.Input();
         in.path = action.path;
         in.automated = automated;
@@ -113,13 +183,11 @@ final class ActionClient {
         if (settings.dryRun) {
             return new Result("DRY_RUN", 0, "would send " + action.body, false, null);
         }
-        recentKeys.put(action.dedupeKey, nowMs);
-        Response response;
-        try {
-            response = transport.post(action.path, action.body.toString());
-        } catch (Exception e) {
-            return new Result("FAILED", 0, "no answer from the game (" + e.getClass().getSimpleName() + ")", false, null);
-        }
+        return null;
+    }
+
+    /** Turns the game's answer into SENT or FAILED. */
+    private static Result judge(Response response) {
         if (response.code == 401 || response.code == 403) {
             return new Result("FAILED", response.code, "the game session has expired", true, response.body);
         }
@@ -129,6 +197,10 @@ final class ActionClient {
                     response.body);
         }
         return new Result("SENT", response.code, message == null ? "" : message, false, response.body);
+    }
+
+    private static String cut(String s, int max) {
+        return s == null ? "(none)" : s.length() > max ? s.substring(0, max) + "…" : s;
     }
 
     private static boolean hasErrors(String body) {

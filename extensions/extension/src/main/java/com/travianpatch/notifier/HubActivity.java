@@ -18,19 +18,20 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 /**
- * "Travian Tools" (the second launcher icon): one screen with four tabs at the bottom - Village (what is
+ * "Travian Tools" (the second launcher icon): one screen with five tabs at the bottom - Village (what is
  * building, auto-build, the queue and what can be built), Alerts, Activity (what the app did, recent
- * notifications) and Settings. A one-line status sits at the top. Opening it runs a check when the last
- * one is old. Plain programmatic views, so it needs no layout resources added to the game's APK.
+ * notifications), Oases (hero raid targets, empty oases) and Settings. A one-line status sits at the top.
+ * Opening it runs a check when the last one is old. Plain programmatic views, so it needs no layout resources added to the game's APK.
  */
 public class HubActivity extends Activity {
 
-    /** Intent extra: which tab to open (0 Village, 1 Alerts, 2 Activity, 3 Settings). */
+    /** Intent extra: which tab to open (0 Village, 1 Alerts, 2 Activity, 3 Oases, 4 Settings). */
     static final String EXTRA_TAB = "tab";
     static final int TAB_VILLAGE = 0;
     static final int TAB_ALERTS = 1;
     static final int TAB_ACTIVITY = 2;
-    static final int TAB_SETTINGS = 3;
+    static final int TAB_OASES = 3;
+    static final int TAB_SETTINGS = 4;
 
     private static final long REFRESH_MS = 1000L;
     private static final long FRESH_MS = 15_000L;
@@ -68,7 +69,8 @@ public class HubActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         NotifierBootstrap.ensureChannels(this); // this screen can be opened before the game ever was
-        tabs = new Tab[]{new VillageTab(this), new AlertsTab(this), new ActivityTab(this), new SettingsTab(this)};
+        tabs = new Tab[]{new VillageTab(this), new AlertsTab(this), new ActivityTab(this), new OasisTab(this),
+                new SettingsTab(this)};
         current = getIntent().getIntExtra(EXTRA_TAB, TAB_VILLAGE);
         setContentView(buildFrame());
         showTab(current);
@@ -163,8 +165,8 @@ public class HubActivity extends Activity {
             }
         });
         tabBarHolder.removeAllViews();
-        tabBarHolder.addView(UiKit.tabBar(this, new String[]{"🏠", "🔔", "📜", "⚙"},
-                new String[]{"Village", "Alerts", "Activity", "Settings"}, current, new UiKit.OnPick() {
+        tabBarHolder.addView(UiKit.tabBar(this, new String[]{"🏠", "🔔", "📜", "🌴", "⚙"},
+                new String[]{"Village", "Alerts", "Activity", "Oases", "Settings"}, current, new UiKit.OnPick() {
                     @Override
                     public void picked(int i) {
                         showTab(i);

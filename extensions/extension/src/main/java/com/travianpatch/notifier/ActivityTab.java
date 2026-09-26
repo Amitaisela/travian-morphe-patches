@@ -111,6 +111,9 @@ final class ActivityTab implements HubActivity.Tab {
         if ("REFUSED".equals(outcome)) {
             return "Not sent";
         }
+        if ("CHECKED".equals(outcome)) {
+            return "Test step (asked the game only)";
+        }
         return "Failed";
     }
 
