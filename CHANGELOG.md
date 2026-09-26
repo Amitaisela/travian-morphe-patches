@@ -1,3 +1,9 @@
+## [1.19.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.18.0...v1.19.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** next-build times, Roman double build, walls, search and village map ([8ac65bb](https://github.com/Amitaisela/travian-morphe-patches/commit/8ac65bb560e2072019329f1d089f7c217a517999))
+
 ## [1.18.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.17.0...v1.18.0) (2026-09-26)
 
 ### ✨ New Features
