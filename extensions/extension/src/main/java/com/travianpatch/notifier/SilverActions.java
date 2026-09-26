@@ -51,6 +51,14 @@ final class SilverActions {
     }
 
     /**
+     * Whether an automatic bid counts as used up for that auction. A bid the guard refused before sending
+     * (automation off, quiet hours, attack pause, a repeat within a minute) is tried again on a later check.
+     */
+    static boolean bidTried(String outcome) {
+        return !"REFUSED".equals(outcome);
+    }
+
+    /**
      * The automatic bid for a deal: up to `percent` % under the normal price and never above the user's cap
      * or the silver I have. 0 when no bid should be made (no cap set, or the auction is already above that).
      */

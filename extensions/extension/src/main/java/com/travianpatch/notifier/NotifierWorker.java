@@ -1384,10 +1384,12 @@ public class NotifierWorker extends Worker {
             if (autoBid && !autoBids.containsKey(a.id)) {
                 long amount = SilverActions.autoBidAmount(d, percent, cap, silver);
                 if (amount > 0) {
-                    autoBids.put(a.id, a.finishedMs);
                     ActionClient.Result r = ActionSender.send(getApplicationContext(), http, gameworldHost,
                             SilverActions.bid(a.id, amount, "Bid up to " + amount + " silver on "
                                     + SilverData.itemText(a.name, a.amount)), true);
+                    if (SilverActions.bidTried(r.outcome)) {
+                        autoBids.put(a.id, a.finishedMs);
+                    }
                     if ("SENT".equals(r.outcome)) {
                         silver -= amount;
                     }
