@@ -92,15 +92,13 @@ final class OasisTab implements HubActivity.Tab {
                     + " fields";
             if (o.empty()) {
                 LinearLayout row = UiKit.listRow(a, where, "no animals");
-                if (TroopSend.STEP_ONE_ONLY) {
-                    // The test step goes to an empty oasis: harmless even if the game already sent on step 1.
-                    UiKit.addPill(row, UiKit.pill(a, "Test (hero)", true, new View.OnClickListener() {
-                        @Override
-                        public void onClick(View v) {
-                            confirmHero(village, o);
-                        }
-                    }));
-                }
+                // An empty oasis gives the hero no XP, but it's a harmless first real send.
+                UiKit.addPill(row, UiKit.pill(a, "Send hero", true, new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        confirmHero(village, o);
+                    }
+                }));
                 if (nEmpty > 0) {
                     empty.addView(UiKit.divider(a));
                 }
@@ -113,14 +111,12 @@ final class OasisTab implements HubActivity.Tab {
                     + " vs infantry, " + def[1] + " vs cavalry" + (power > 0 ? " · hero "
                     + power + " (rough compare only)" : ""));
             LinearLayout row = UiKit.listRow(a, where, sub);
-            if (!TroopSend.STEP_ONE_ONLY) {
-                UiKit.addPill(row, UiKit.pill(a, "Send hero", true, new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        confirmHero(village, o);
-                    }
-                }));
-            }
+            UiKit.addPill(row, UiKit.pill(a, "Send hero", true, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    confirmHero(village, o);
+                }
+            }));
             if (nWith > 0) {
                 withAnimals.addView(UiKit.divider(a));
             }
@@ -129,9 +125,6 @@ final class OasisTab implements HubActivity.Tab {
         }
         if (nWith == 0) {
             withAnimals.addView(UiKit.muted(a, "No oasis with animals in range."));
-        } else if (TroopSend.STEP_ONE_ONLY) {
-            withAnimals.addView(UiKit.muted(a, "Send hero appears here after the one-time test on an empty oasis "
-                    + "(below) has shown how the game's send works."));
         }
         col.addView(withAnimals, UiKit.cardParams(a));
         col.addView(UiKit.section(a, "Empty (for troop escape)"));
@@ -175,7 +168,8 @@ final class OasisTab implements HubActivity.Tab {
                     units.put("t11", 1);
                     ActionClient.Result r = ActionSender.sendFromScreen(a,
                             TroopSend.raid(village.id, o.cellId, o.x, o.y, units, label));
-                    text = label + ": " + r.describe();
+                    String arrival = "SENT".equals(r.outcome) ? TroopSend.arrivalText(r.responseBody) : "";
+                    text = label + ": " + r.describe() + (arrival.isEmpty() ? "" : " · " + arrival);
                 } catch (Exception e) {
                     text = label + ": failed (" + e.getClass().getSimpleName() + ")";
                 }

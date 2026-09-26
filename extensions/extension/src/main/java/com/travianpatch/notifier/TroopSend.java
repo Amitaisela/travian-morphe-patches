@@ -20,10 +20,10 @@ final class TroopSend {
     static final int TROOP_TYPE_DEFAULT = 1;
     static final String[] UNITS = {"t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11"};
     /**
-     * Stop after step 1 and show what the game answered. On until one watched try shows where the one-time
-     * token comes back; then this is switched off in a later release.
+     * Stop after step 1 and show what the game answered. Off since the watched test of 2026-09-26 showed
+     * step 1 (PUT) answers 200 with the token in the x-nonce header.
      */
-    static final boolean STEP_ONE_ONLY = true;
+    static final boolean STEP_ONE_ONLY = false;
 
     private TroopSend() {
     }
@@ -60,5 +60,19 @@ final class TroopSend {
                 .put("eventType", RAID)
                 .put("troops", new JSONArray().put(troop));
         return new GameAction(KIND, villageId, PATH, body, label, "troops:" + villageId + ":" + x + "|" + y);
+    }
+
+    /** "arrives in 12 min" from the game's send answer (troops[0].arrivalIn, seconds), or "" if missing. */
+    static String arrivalText(String responseBody) {
+        try {
+            JSONObject t = new JSONObject(responseBody).getJSONArray("troops").getJSONObject(0);
+            if (!t.has("arrivalIn") || t.isNull("arrivalIn")) {
+                return "";
+            }
+            long sec = t.getLong("arrivalIn");
+            return sec < 60 ? "arrives in " + sec + " s" : "arrives in " + Math.round(sec / 60.0) + " min";
+        } catch (Exception e) {
+            return "";
+        }
     }
 }
