@@ -1,3 +1,9 @@
+## [1.23.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.22.1...v1.23.0) (2026-09-26)
+
+### ✨ New Features
+
+* **Travian: Legends:** Silver tab with auction alerts, sell advisor and deal finder ([07c9586](https://github.com/Amitaisela/travian-morphe-patches/commit/07c95865586b51aafee8df1a15b7af47def4f4d7))
+
 ## [1.22.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.22.0...v1.22.1) (2026-09-26)
 
 ### 🐛 Bug Fixes
