@@ -1,3 +1,9 @@
+## [1.25.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.25.0...v1.25.1) (2026-09-26)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** retry an automatic silver bid the guard held back ([d1f4e4c](https://github.com/Amitaisela/travian-morphe-patches/commit/d1f4e4c4e6a8391d2f149826187abfa52156483a))
+
 ## [1.25.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.24.0...v1.25.0) (2026-09-26)
 
 ### ✨ New Features
