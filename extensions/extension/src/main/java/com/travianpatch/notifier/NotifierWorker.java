@@ -836,6 +836,54 @@ public class NotifierWorker extends Worker {
         }
     }
 
+    /**
+     * Starts a town hall celebration per village when the user's switch is on (Settings, default off) and
+     * CelebrationPlanner says the game allows it and the stock covers it plus the auto-build buffer. Sends
+     * through ActionSender (master switch, practice mode, attack pause, log).
+     */
+    private void checkCelebrations(OkHttpClient http, String gameworldHost) throws Exception {
+        Context ctx = getApplicationContext();
+        SharedPreferences actions = ctx.getSharedPreferences(ActionSender.PREFS, Context.MODE_PRIVATE);
+        if (!ActionSender.settings(ctx).masterOn || !actions.getBoolean(CelebrationPlanner.KEY_ON, false)) {
+            return;
+        }
+        SharedPreferences state = statePrefs();
+        PlayerBuildings player = PlayerBuildings.parse(state.getString(KEY_PLAYER_BUILDINGS, null));
+        if (player == null) {
+            return;
+        }
+        String wanted = actions.getBoolean(CelebrationPlanner.KEY_GREAT, false) ? "GREAT" : "SMALL";
+        int buffer = AutomationSettings.fromJson(ctx.getSharedPreferences(AutomationSettings.PREFS,
+                Context.MODE_PRIVATE).getString(AutomationSettings.KEY, null)).bufferPercent;
+        List<VillageResources.Entry> stocks = VillageResources.fromJson(state.getString(KEY_VILLAGE_RESOURCES, null));
+        SharedPreferences orders = ctx.getSharedPreferences(BuildOrderStore.PREFS, Context.MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        for (PlayerBuildings.Village village : player.villages) {
+            JSONObject v = dataObject(runRootQuery(http, gameworldHost, CelebrationPlanner.query(village.id)),
+                    "ownVillage");
+            CelebrationPlanner.TownHall hall = CelebrationPlanner.parse(v == null ? null : v.optJSONObject("townHall"));
+            VillageResources.Entry s = VillageResources.find(stocks, village.id);
+            BuildQueueAutomation.Resources stock = s == null ? null
+                    : new BuildQueueAutomation.Resources(s.lumberStock, s.clayStock, s.ironStock, s.cropStock);
+            boolean queueWaiting = orders.getBoolean(BuildOrderStore.autoKey(village.id), false)
+                    && village.pending.isEmpty()
+                    && !BuildOrderStore.fromJson(orders.getString(BuildOrderStore.key(village.id), null)).isEmpty();
+            CelebrationPlanner.Decision d = CelebrationPlanner.decide(hall, wanted, stock, buffer, queueWaiting, now);
+            String line = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(new java.util.Date(now))
+                    + ": " + d.reason;
+            if (d.start != null) {
+                ActionClient.Result r = ActionSender.send(ctx, http, gameworldHost,
+                        GameActions.celebrate(village.id, d.start), true);
+                Log.i(TAG, "celebration " + village.id + ": " + d.start + " -> " + r.outcome + " " + r.describe());
+                line += " -> " + r.describe();
+                if (r.sessionExpired) {
+                    clearCachedWorldToken();
+                }
+            }
+            actions.edit().putString(CelebrationPlanner.notesKey(village.id), line).apply();
+        }
+    }
+
     /** When a build line went idle (saved under key); cleared while the game is building in it. */
     private static long idleSince(SharedPreferences orders, String key, boolean busy, long now) {
         if (busy) {
@@ -865,6 +913,11 @@ public class NotifierWorker extends Worker {
             checkBuildQueues(http, gameworldHost);
         } catch (Exception e) {
             Log.w(TAG, "build queue check failed: " + e);
+        }
+        try {
+            checkCelebrations(http, gameworldHost);
+        } catch (Exception e) {
+            Log.w(TAG, "celebration check failed: " + e);
         }
         try {
             checkStorage(http, gameworldHost);

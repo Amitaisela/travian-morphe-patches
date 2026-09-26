@@ -73,6 +73,39 @@ final class SettingsTab implements HubActivity.Tab {
         card.addView(UiKit.muted(a, "Off: attacks never stop auto-build. The minutes are saved with Save below."));
         col.addView(card, UiKit.cardParams(a));
 
+        col.addView(UiKit.section(a, "Celebrations"));
+        LinearLayout cel = UiKit.card(a);
+        Switch celOn = UiKit.accentSwitch(a, "Start celebrations automatically",
+                p.getBoolean(CelebrationPlanner.KEY_ON, false));
+        celOn.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                p.edit().putBoolean(CelebrationPlanner.KEY_ON, on).apply();
+            }
+        });
+        cel.addView(celOn, full());
+        Switch celGreat = UiKit.accentSwitch(a, "Great celebration instead of small",
+                p.getBoolean(CelebrationPlanner.KEY_GREAT, false));
+        celGreat.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton b, boolean on) {
+                p.edit().putBoolean(CelebrationPlanner.KEY_GREAT, on).apply();
+            }
+        });
+        cel.addView(celGreat, full());
+        cel.addView(UiKit.muted(a, "Starts one when the game says it can, nothing is running, and resources cover "
+                + "it plus the auto-build buffer below. A build queue waiting for resources goes first. Needs "
+                + "Automatic actions on."));
+        java.util.List<VillageList.Entry> villages = VillageList.fromJson(a.getSharedPreferences(
+                NotifierWorker.STATE_PREFS, Context.MODE_PRIVATE).getString(NotifierWorker.KEY_VILLAGES, null));
+        for (VillageList.Entry v : villages) {
+            String note = p.getString(CelebrationPlanner.notesKey(v.id), null);
+            if (note != null) {
+                cel.addView(UiKit.muted(a, (villages.size() > 1 ? v.name + " — " : "Last check ") + note));
+            }
+        }
+        col.addView(cel, UiKit.cardParams(a));
+
         AutomationSettings.Config c = AutomationSettings.fromJson(a.getSharedPreferences(AutomationSettings.PREFS,
                 Context.MODE_PRIVATE).getString(AutomationSettings.KEY, null));
         col.addView(UiKit.section(a, "Auto-build timing"));

@@ -73,6 +73,18 @@ final class GameActions {
         return new GameAction("FARM_SEND", "", "/farm-list/send", body, label, key.toString());
     }
 
+    /** Start a town hall celebration: type SMALL or GREAT (sent as the game's number, see CelebrationPlanner). */
+    static GameAction celebrate(String villageId, String type) throws Exception {
+        int number = CelebrationPlanner.restType(type);
+        if (number == 0) {
+            throw new IllegalArgumentException("unknown celebration type: " + type);
+        }
+        JSONObject body = new JSONObject().put("action", "celebration").put("type", number);
+        return new GameAction("CELEBRATE", villageId, "/village/" + Integer.parseInt(villageId) + "/celebrations/start",
+                body, (number == CelebrationPlanner.REST_GREAT ? "Great" : "Small") + " celebration",
+                "celebrate:" + villageId);
+    }
+
     /** Make this village the game's current village (build and train act on the current village). */
     static GameAction changeVillage(String villageId) throws Exception {
         JSONObject body = new JSONObject().put("newVillageId", Integer.parseInt(villageId));
