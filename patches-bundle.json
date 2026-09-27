@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-27T11:49:44",
-  "description": "## [1.26.3](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.2...v1.26.3) (2026-09-27)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** fewer and plainer requests (second review) ([f36582d](https://github.com/Amitaisela/travian-morphe-patches/commit/f36582d153e2570645d9a43e6f2d328e711a491c))",
-  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.26.3/patches-1.26.3.mpp",
+  "created_at": "2026-09-27T12:05:48",
+  "description": "## [1.26.4](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.3...v1.26.4) (2026-09-27)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** name requests like the game's own network code ([d0fcc13](https://github.com/Amitaisela/travian-morphe-patches/commit/d0fcc13b1cbaaae5fd27e6e37707681d732fea2c))\n* **Travian: Legends:** no night sign-ins, escape retry, stop a read that never works ([5880e3b](https://github.com/Amitaisela/travian-morphe-patches/commit/5880e3b7e36a85e9ca4bca64fd5f1a2222cad1a8))",
+  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.26.4/patches-1.26.4.mpp",
   "signature_download_url": "",
-  "version": "1.26.3"
+  "version": "1.26.4"
 }

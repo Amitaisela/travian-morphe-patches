@@ -1,3 +1,10 @@
+## [1.26.4](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.3...v1.26.4) (2026-09-27)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** name requests like the game's own network code ([d0fcc13](https://github.com/Amitaisela/travian-morphe-patches/commit/d0fcc13b1cbaaae5fd27e6e37707681d732fea2c))
+* **Travian: Legends:** no night sign-ins, escape retry, stop a read that never works ([5880e3b](https://github.com/Amitaisela/travian-morphe-patches/commit/5880e3b7e36a85e9ca4bca64fd5f1a2222cad1a8))
+
 ## [1.26.3](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.2...v1.26.3) (2026-09-27)
 
 ### 🐛 Bug Fixes
