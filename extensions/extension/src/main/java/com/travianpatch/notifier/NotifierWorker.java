@@ -88,6 +88,7 @@ public class NotifierWorker extends Worker {
     /** "true"/"false" once read, absent until then; read by the Hub screen. */
     static final String KEY_GOLD_CLUB = "gold_club";
     private static final String KEY_GOLD_CLUB_LOGGED_AT = "gold_club_logged_at";
+    private static final String KEY_GOLD_CLUB_ANSWERED = "gold_club_answered";
     private static final int PENDING_FLAGS = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
     private static final String KEY_RETRIES = "retries";
     /** A finish time that passed this recently but is still listed means the server is lagging: recheck. */
@@ -1231,8 +1232,9 @@ public class NotifierWorker extends Worker {
     private void checkAccountTier(OkHttpClient http, String gameworldHost) throws Exception {
         SharedPreferences prefs = statePrefs();
         long now = System.currentTimeMillis();
-        // Every 30 minutes until the answer is known, then every 6 hours (it rarely changes).
-        long every = prefs.contains(KEY_GOLD_CLUB) ? TimeUnit.HOURS.toMillis(6) : TimeUnit.MINUTES.toMillis(30);
+        // Every 30 minutes until the game has answered once (true, false, or nothing), then every 6 hours.
+        long every = prefs.contains(KEY_GOLD_CLUB) || prefs.getBoolean(KEY_GOLD_CLUB_ANSWERED, false)
+                ? TimeUnit.HOURS.toMillis(6) : TimeUnit.MINUTES.toMillis(30);
         if (now - prefs.getLong(KEY_GOLD_CLUB_LOGGED_AT, 0) < every) {
             return;
         }
@@ -1245,6 +1247,7 @@ public class NotifierWorker extends Worker {
         }
         Object raw = data.getJSONObject("p").opt("goldClub");
         Log.i(TAG, "gold club raw: " + raw);
+        prefs.edit().putBoolean(KEY_GOLD_CLUB_ANSWERED, true).apply();
         if (raw instanceof Boolean) {
             prefs.edit().putString(KEY_GOLD_CLUB, String.valueOf(raw)).apply();
         } else {
