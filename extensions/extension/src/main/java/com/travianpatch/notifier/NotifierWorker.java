@@ -233,6 +233,14 @@ public class NotifierWorker extends Worker {
                 }
             }
 
+            if (quiet) {
+                // A person doesn't log in in the middle of the night: once the saved login has run out, checks
+                // wait for the morning (or for the game to be opened, which saves a fresh login).
+                Log.i(TAG, "quiet hours: no saved login left, not signing in until the quiet hours end");
+                statusNote = "Paused for the night (quiet hours): alerts resume in the morning or when you open the game";
+                scheduleNextCheck();
+                return Result.success();
+            }
             long lastSignIn = statePrefs().getLong(KEY_LAST_SIGN_IN, 0);
             if (start - lastSignIn < SIGN_IN_GAP_MS && start >= lastSignIn) {
                 return failed("signed in less than 30 minutes ago; waiting before signing in again");
@@ -763,6 +771,9 @@ public class NotifierWorker extends Worker {
     /** village id -> the game's landDistribution value (picks the field layout on the Map). */
     static final String KEY_LAND_DISTRIBUTION = "land_distribution";
     private static final String KEY_LAND_TRIED_AT = "land_distribution_tried_at";
+    /** Reads in a row that learned nothing; after LAND_MAX_EMPTY_TRIES the game doesn't have it, so stop asking. */
+    private static final String KEY_LAND_EMPTY_TRIES = "land_distribution_empty_tries";
+    private static final int LAND_MAX_EMPTY_TRIES = 3;
 
     /**
      * Reads each village's landDistribution once (it never changes), so the Map can place the fields the way
@@ -781,10 +792,13 @@ public class NotifierWorker extends Worker {
             missing |= !known.has(v.id);
         }
         long now = System.currentTimeMillis();
-        if (!missing || now - state.getLong(KEY_LAND_TRIED_AT, 0) < 6 * 3_600_000L) {
+        int emptyTries = state.getInt(KEY_LAND_EMPTY_TRIES, 0);
+        if (!missing || emptyTries >= LAND_MAX_EMPTY_TRIES
+                || now - state.getLong(KEY_LAND_TRIED_AT, 0) < 6 * 3_600_000L) {
             return;
         }
         state.edit().putLong(KEY_LAND_TRIED_AT, now).apply();
+        int knownBefore = known.length();
         JSONObject own = null;
         try {
             JSONObject first = runRootQuery(http, gameworldHost, "query { ownPlayer { villages { id landDistribution } } }");
@@ -817,7 +831,9 @@ public class NotifierWorker extends Worker {
                 known.put(v.id, String.valueOf(one.opt("landDistribution")));
             }
         }
-        state.edit().putString(KEY_LAND_DISTRIBUTION, known.toString()).apply();
+        // A read that keeps failing is noise in the game's error logs: after a few empty ones, never again.
+        state.edit().putString(KEY_LAND_DISTRIBUTION, known.toString())
+                .putInt(KEY_LAND_EMPTY_TRIES, known.length() > knownBefore ? 0 : emptyTries + 1).apply();
     }
 
     private void refreshBuildingRules(OkHttpClient http, String gameworldHost) {
@@ -1081,9 +1097,14 @@ public class NotifierWorker extends Worker {
                 }
             };
             String outcome = null;
+            boolean gameOpened = false;
             java.util.List<String> tried = new ArrayList<String>();
             for (int i = 0; i < empties.size() && i < EscapePlanner.MAX_TRIES; i++) {
                 OasisFinder.Oasis o = empties.get(i);
+                if (i > 0) {
+                    // A player reads one preview before trying the next oasis.
+                    Thread.sleep(CheckPacing.between(random, 2_000L, 5_000L));
+                }
                 ActionClient.Result r = ActionSender.send(ctx, http, gameworldHost,
                         TroopSend.escape(v.id, o.cellId, o.x, o.y, units, plan.firstImpactMs), true, check);
                 Log.i(TAG, "escape " + v.name + " -> (" + o.x + "|" + o.y + "): " + r.outcome + " " + r.describe());
@@ -1099,10 +1120,21 @@ public class NotifierWorker extends Worker {
                             + (arrival.isEmpty() ? "" : " (" + arrival + ")");
                     break;
                 }
+                if ("REFUSED".equals(r.outcome) && GameScreen.busy(System.currentTimeMillis())) {
+                    gameOpened = true; // nothing went out: the player opened the game during this check
+                    break;
+                }
                 tried.add("(" + o.x + "|" + o.y + "): " + r.describe());
                 if (!r.describe().contains("too close")) {
                     break; // refused for another reason (switch off, game said no): trying farther won't help
                 }
+            }
+            if (outcome == null && gameOpened) {
+                // Not handled after all: a later check (after the game is closed) may still act on this wave.
+                handled.remove(Long.valueOf(plan.firstImpactMs));
+                p.edit().putString(EscapePlanner.KEY_DONE, EscapePlanner.joinHandled(handled)).apply();
+                Log.i(TAG, "escape " + v.name + ": the game was opened, nothing sent; will look again after it closes");
+                continue;
             }
             if (outcome == null) {
                 outcome = "Couldn't move troops from " + v.name + " before the attack at " + when + ": "

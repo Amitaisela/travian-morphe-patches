@@ -194,4 +194,16 @@ final class EscapePlanner {
         }
         return b.append(impactMs).toString();
     }
+
+    /** The handled list as saved text ("123,456"). */
+    static String joinHandled(List<Long> handled) {
+        StringBuilder b = new StringBuilder();
+        for (Long t : handled) {
+            if (b.length() > 0) {
+                b.append(',');
+            }
+            b.append(t);
+        }
+        return b.toString();
+    }
 }
