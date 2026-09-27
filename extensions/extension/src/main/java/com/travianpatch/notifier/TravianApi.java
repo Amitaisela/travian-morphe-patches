@@ -34,8 +34,23 @@ final class TravianApi {
     private TravianApi() {
     }
 
+    /**
+     * The game's own network code (Unity's UnityWebRequest) names itself with this User-Agent: the template
+     * "UnityPlayer/%s (UnityWebRequest/1.0, %s)" and "libcurl/8.10.1-DEV" are in the game's libunity.so, the
+     * Unity version 6000.3.17f1 in its globalgamemanagers (Travian: Legends 4.0.2). Not yet seen live (the
+     * game's native TLS can't be captured); the user chose it over OkHttp's own "okhttp/..." on 2026-09-27.
+     * Update it together with the game's Unity version.
+     */
+    static final String USER_AGENT = "UnityPlayer/6000.3.17f1 (UnityWebRequest/1.0, libcurl/8.10.1-DEV)";
+
     static OkHttpClient newClient(CookieJar cookieJar) {
         return new OkHttpClient.Builder()
+                .addInterceptor(new okhttp3.Interceptor() {
+                    @Override
+                    public Response intercept(Chain chain) throws java.io.IOException {
+                        return chain.proceed(chain.request().newBuilder().header("User-Agent", USER_AGENT).build());
+                    }
+                })
                 .cookieJar(cookieJar)
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
