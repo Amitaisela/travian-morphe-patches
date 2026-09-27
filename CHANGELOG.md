@@ -1,3 +1,9 @@
+## [1.26.3](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.2...v1.26.3) (2026-09-27)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** fewer and plainer requests (second review) ([f36582d](https://github.com/Amitaisela/travian-morphe-patches/commit/f36582d153e2570645d9a43e6f2d328e711a491c))
+
 ## [1.26.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.1...v1.26.2) (2026-09-27)
 
 ### 🐛 Bug Fixes

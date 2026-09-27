@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-27T10:37:45",
-  "description": "## [1.26.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.1...v1.26.2) (2026-09-27)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** read the gold club every 6 hours once the game has answered ([b16ba52](https://github.com/Amitaisela/travian-morphe-patches/commit/b16ba529beebe5d2dcdadefe8c32cbf5f55ef10c))\n* **Travian: Legends:** use the game's own saved login instead of signing in separately ([20152de](https://github.com/Amitaisela/travian-morphe-patches/commit/20152de3d86fd0f0e570e0c29ede49a93f81749a))",
-  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.26.2/patches-1.26.2.mpp",
+  "created_at": "2026-09-27T11:49:44",
+  "description": "## [1.26.3](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.2...v1.26.3) (2026-09-27)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** fewer and plainer requests (second review) ([f36582d](https://github.com/Amitaisela/travian-morphe-patches/commit/f36582d153e2570645d9a43e6f2d328e711a491c))",
+  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.26.3/patches-1.26.3.mpp",
   "signature_download_url": "",
-  "version": "1.26.2"
+  "version": "1.26.3"
 }
