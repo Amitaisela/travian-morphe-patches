@@ -1,3 +1,9 @@
+## [1.26.5](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.4...v1.26.5) (2026-09-27)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** clearer patch names and short descriptions ([45faa96](https://github.com/Amitaisela/travian-morphe-patches/commit/45faa9659a52a7b6878a5bcac256f52d0befbbed))
+
 ## [1.26.4](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.3...v1.26.4) (2026-09-27)
 
 ### 🐛 Bug Fixes

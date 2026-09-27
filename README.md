@@ -63,7 +63,7 @@ The game's APK isn't included here (it is Travian's app), and Travian isn't on A
 ## 🩹 Patches list
 
 <!-- PATCHES_START EXPANDED -->
-> **[v1.26.4](https://github.com/Amitaisela/travian-morphe-patches/releases/tag/v1.26.4)**&nbsp;&nbsp;•&nbsp;&nbsp;`main`&nbsp;&nbsp;•&nbsp;&nbsp;2 patches total
+> **[v1.26.5](https://github.com/Amitaisela/travian-morphe-patches/releases/tag/v1.26.5)**&nbsp;&nbsp;•&nbsp;&nbsp;`main`&nbsp;&nbsp;•&nbsp;&nbsp;2 patches total
 <details open>
 <summary>📦 Travian: Legends&nbsp;&nbsp;•&nbsp;&nbsp;2 patches</summary>
 <br>
