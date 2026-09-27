@@ -204,6 +204,7 @@ public class NotifierWorker extends Worker {
             if (gameworldHost != null) {
                 try {
                     poll(http, gameworldHost);
+                    cacheWorldToken(jar, gameworldHost); // keeps a login the server renewed in its reply
                     return succeeded();
                 } catch (AuthExpiredException e) {
                     Log.i(TAG, "cached world token was refused (" + e.getMessage() + "), signing in again");
@@ -220,6 +221,7 @@ public class NotifierWorker extends Worker {
             if (gameworldHost != null) {
                 try {
                     poll(http, gameworldHost);
+                    cacheWorldToken(jar, gameworldHost); // keeps a login the server renewed in its reply
                     Log.i(TAG, "using the game's own saved login, no separate sign-in");
                     return succeeded();
                 } catch (AuthExpiredException e) {
@@ -440,6 +442,9 @@ public class NotifierWorker extends Worker {
             if (token == null || expMs <= System.currentTimeMillis()) {
                 return; // can't tell how long it's good for, so don't reuse it
             }
+            if (token.equals(statePrefs().getString(KEY_WORLD_TOKEN, null))) {
+                return; // already the cached one
+            }
             statePrefs().edit()
                     .putString(KEY_WORLD_HOST, host)
                     .putString(KEY_WORLD_TOKEN, token)
@@ -490,7 +495,7 @@ public class NotifierWorker extends Worker {
                 .build();
         jar.seed(lobbyHost, cookie);
 
-        String avatarsQuery = "{ \"query\": \"query { a: avatars(wuid: null, context: null) "
+        String avatarsQuery = "{ \"query\": \"query { avatars(wuid: null, context: null) "
                 + "{ uuid, gameworld { metadata { url } } } }\" }";
         Request avatarsReq = new Request.Builder()
                 .url(TravianApi.LOBBY_HOST + "/api/graphql")
@@ -502,7 +507,7 @@ public class NotifierWorker extends Worker {
             Log.w(TAG, "game's session was rejected by lobby: " + avatarsResp);
             return null;
         }
-        JSONArray avatars = data.getJSONArray("a");
+        JSONArray avatars = data.getJSONArray("avatars");
         if (avatars.length() == 0) {
             return null;
         }
@@ -554,7 +559,7 @@ public class NotifierWorker extends Worker {
     // ------------------------------------------------------------------
 
     private static String pollQuery(boolean withMovements) {
-        return "{ \"query\": \"query { p: ownPlayer { villages { id name x y tribeId "
+        return "{ \"query\": \"query { ownPlayer { villages { id name x y tribeId "
                 + "buildEvents { id buildingTypeId aspiredLevel timestamp status isActive } "
                 + "trainingTroops { eventId unit { id } unitsLeft nextUnitReadyAt lastUnitReadyAt } "
                 + "stable { trainingUnits { eventId unit { id } unitsLeft nextUnitReadyAt lastUnitReadyAt } } "
@@ -614,7 +619,7 @@ public class NotifierWorker extends Worker {
             // allowed for it, but runCheck limits sign-ins to one per 30 minutes.
             throw new AuthExpiredException("no data in poll response: " + errorSummary(resp));
         }
-        JSONObject player = data.getJSONObject("p");
+        JSONObject player = data.getJSONObject("ownPlayer");
         JSONArray villages = player.getJSONArray("villages");
 
         Map<String, TrackedEvent> tracked = loadTrackedState();
@@ -864,60 +869,6 @@ public class NotifierWorker extends Worker {
             buildingsFresh = true;
         } catch (Exception e) {
             Log.w(TAG, "player buildings refresh failed: " + e);
-        }
-    }
-
-    /**
-     * One-off, read-only diagnostic for the next features (celebrations, oases, troops, merchants, hero):
-     * runs the queries in DataProbe once per install after a poll has seen a village and logs every raw
-     * response. Nothing is shown on any screen and nothing is changed in the game.
-     */
-    private void runDataProbe(OkHttpClient http, String gameworldHost) {
-        SharedPreferences prefs = statePrefs();
-        List<VillageList.Entry> known = VillageList.fromJson(prefs.getString(KEY_VILLAGES, null));
-        if (!DataProbe.shouldRun(prefs.getBoolean(DataProbe.KEY_DONE, false), known.size())) {
-            return;
-        }
-        prefs.edit().putBoolean(DataProbe.KEY_DONE, true).apply();
-        VillageList.Entry village = known.get(0);
-        List<String> queries = new ArrayList<String>(DataProbe.queries(village.id, village.x, village.y));
-        for (int n = 1; n <= queries.size(); n++) {
-            String query = queries.get(n - 1);
-            Log.i(TAG, "DPROBE " + n + " query: " + query);
-            try {
-                JSONObject response = runRootQuery(http, gameworldHost, query);
-                logProbePieces(n, response.toString());
-                JSONObject player = dataObject(response, "ownPlayer");
-                JSONObject auctions = player == null ? null : player.optJSONObject("auctions");
-                if (auctions != null && auctions.optJSONObject("items") != null) {
-                    queries.addAll(DataProbe.sellingProbes(response.optJSONObject("data")));
-                }
-                JSONObject hero = player == null ? null : player.optJSONObject("hero");
-                if (hero != null && hero.optJSONArray("inventory") != null) {
-                    String selling = SilverData.sellingQuery(SilverData.bag(new JSONObject().put("bag",
-                            response.optJSONObject("data"))), true);
-                    if (selling != null) {
-                        queries.add(selling);
-                    }
-                }
-            } catch (Exception e) {
-                Log.i(TAG, "DPROBE " + n + " failed: " + e);
-            }
-        }
-        Log.i(TAG, "DPROBE finished");
-    }
-
-    private void logProbePieces(int n, String response) {
-        Log.i(TAG, "DPROBE " + n + " response length: " + response.length());
-        List<String> pieces = DataProbe.split(cut(response, DataProbe.MAX_LOGGED_CHARS), DataProbe.LOG_PIECE);
-        for (int k = 0; k < pieces.size(); k++) {
-            Log.i(TAG, "DPROBE " + n + " part " + (k + 1) + "/" + pieces.size() + ": " + pieces.get(k));
-            try {
-                Thread.sleep(50); // the round-2 probe lost pieces when many long lines were logged at once
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
         }
     }
 
@@ -1183,11 +1134,6 @@ public class NotifierWorker extends Worker {
             Log.w(TAG, "escape check failed: " + e);
         }
         try {
-            runDataProbe(http, gameworldHost);
-        } catch (Exception e) {
-            Log.w(TAG, "data probe failed: " + e);
-        }
-        try {
             refreshBuildingData(http, gameworldHost);
         } catch (Exception e) {
             Log.w(TAG, "building data refresh failed: " + e);
@@ -1245,7 +1191,7 @@ public class NotifierWorker extends Worker {
             Log.i(TAG, "gold club query failed: " + errorSummary(resp));
             return;
         }
-        Object raw = data.getJSONObject("p").opt("goldClub");
+        Object raw = data.getJSONObject("ownPlayer").opt("goldClub");
         Log.i(TAG, "gold club raw: " + raw);
         prefs.edit().putBoolean(KEY_GOLD_CLUB_ANSWERED, true).apply();
         if (raw instanceof Boolean) {
@@ -1256,7 +1202,7 @@ public class NotifierWorker extends Worker {
     }
 
     private JSONObject runQuery(OkHttpClient http, String gameworldHost, String selection) throws Exception {
-        String body = "{ \"query\": \"query { p: ownPlayer { " + selection + " } }\" }";
+        String body = "{ \"query\": \"query { ownPlayer { " + selection + " } }\" }";
         Request req = new Request.Builder()
                 .url(gameworldHost + "/api/v1/graphql")
                 .post(TravianApi.jsonBody(body))
@@ -1275,7 +1221,7 @@ public class NotifierWorker extends Worker {
             Log.w(TAG, "storage query returned no data (" + errorSummary(resp) + ")");
             return;
         }
-        JSONArray villages = data.getJSONObject("p").getJSONArray("villages");
+        JSONArray villages = data.getJSONObject("ownPlayer").getJSONArray("villages");
         saveVillageResources(villages);
         Set<String> alerted = new HashSet<String>(statePrefs().getStringSet(KEY_STORAGE_ALERTED, new HashSet<String>()));
         int warned = 0;
@@ -1339,7 +1285,7 @@ public class NotifierWorker extends Worker {
             Log.w(TAG, "hero query returned no data (" + errorSummary(resp) + ")");
             return;
         }
-        JSONObject hero = data.getJSONObject("p").optJSONObject("hero");
+        JSONObject hero = data.getJSONObject("ownPlayer").optJSONObject("hero");
         SharedPreferences prefs = statePrefs();
         if (hero == null) {
             Log.i(TAG, "no hero in the response");
@@ -1390,6 +1336,15 @@ public class NotifierWorker extends Worker {
         SharedPreferences state = statePrefs();
         if (now < state.getLong(KEY_SILVER_NEXT_READ, 0)) {
             return;
+        }
+        Context c = getApplicationContext();
+        SharedPreferences switches = c.getSharedPreferences(ActionSender.PREFS, Context.MODE_PRIVATE);
+        if (!switches.getBoolean(SilverActions.KEY_AUTO_BID, false)
+                && !switches.getBoolean(SilverActions.KEY_AUTO_SELL, false)
+                && !NotifierSettings.isEnabled(c, NotificationKind.SILVER_OUTBID)
+                && !NotifierSettings.isEnabled(c, NotificationKind.SILVER_AUCTION)
+                && !NotifierSettings.isEnabled(c, NotificationKind.SILVER_DEAL)) {
+            return; // nothing would be shown or done with it: don't read the auction house at all
         }
         state.edit().putLong(KEY_SILVER_NEXT_READ, now + CheckPacing.between(random, 8 * 60_000L, 14 * 60_000L)).apply();
         JSONObject snap = SilverData.readForAlerts(reader, now);
