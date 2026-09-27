@@ -1,3 +1,10 @@
+## [1.26.2](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.1...v1.26.2) (2026-09-27)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** read the gold club every 6 hours once the game has answered ([b16ba52](https://github.com/Amitaisela/travian-morphe-patches/commit/b16ba529beebe5d2dcdadefe8c32cbf5f55ef10c))
+* **Travian: Legends:** use the game's own saved login instead of signing in separately ([20152de](https://github.com/Amitaisela/travian-morphe-patches/commit/20152de3d86fd0f0e570e0c29ede49a93f81749a))
+
 ## [1.26.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.0...v1.26.1) (2026-09-27)
 
 ### 🐛 Bug Fixes
