@@ -54,6 +54,16 @@ final class TravianSession {
         }
     }
 
+    /** All of the game's own saved settings (Unity PlayerPrefs); empty when unreadable. Never logged. */
+    static java.util.Map<String, ?> savedSettings(Context ctx) {
+        try {
+            Context app = ctx.getApplicationContext();
+            return app.getSharedPreferences(app.getPackageName() + ".v2.playerprefs", Context.MODE_PRIVATE).getAll();
+        } catch (Exception e) {
+            return new java.util.HashMap<String, Object>();
+        }
+    }
+
     /** Returns the game's current lobby session cookie value, or null if it isn't logged in. */
     static String readLobbySessionCookie(Context ctx) {
         Context app = ctx.getApplicationContext();

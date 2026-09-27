@@ -195,12 +195,35 @@ public class NotifierWorker extends Worker {
             SimpleCookieJar jar = new SimpleCookieJar();
             OkHttpClient http = TravianApi.newClient(jar);
             String gameworldHost = seedCachedWorldToken(jar);
+            if (gameworldHost != null && !statePrefs().contains(KEY_OUR_CLAIMS)) {
+                // Installs from before this version: the cached token came from this app's own sign-in.
+                statePrefs().edit().putString(KEY_OUR_CLAIMS, GameLogin.claimNames(
+                        statePrefs().getString(KEY_WORLD_TOKEN, null))).apply();
+            }
             if (gameworldHost != null) {
                 try {
                     poll(http, gameworldHost);
                     return succeeded();
                 } catch (AuthExpiredException e) {
                     Log.i(TAG, "cached world token was refused (" + e.getMessage() + "), signing in again");
+                    refusedToken = statePrefs().getString(KEY_WORLD_TOKEN, null);
+                    clearCachedWorldToken();
+                    jar = new SimpleCookieJar();
+                    http = TravianApi.newClient(jar);
+                }
+            }
+
+            // Next: the game's own saved world login (no separate sign-in at all), when it is the same kind
+            // of token as ours and still valid. Refused once, it isn't tried again for 6 hours.
+            gameworldHost = seedGameLogin(jar, start);
+            if (gameworldHost != null) {
+                try {
+                    poll(http, gameworldHost);
+                    Log.i(TAG, "using the game's own saved login, no separate sign-in");
+                    return succeeded();
+                } catch (AuthExpiredException e) {
+                    Log.i(TAG, "the game's saved login was refused (" + e.getMessage() + "), signing in separately");
+                    statePrefs().edit().putLong(KEY_GAME_LOGIN_REFUSED_AT, start).apply();
                     clearCachedWorldToken();
                     jar = new SimpleCookieJar();
                     http = TravianApi.newClient(jar);
@@ -373,6 +396,42 @@ public class NotifierWorker extends Worker {
         return host;
     }
 
+    /** The claim names of the token this app got from its own sign-in (names only, see GameLogin). */
+    private static final String KEY_OUR_CLAIMS = "own_token_claim_names";
+    private static final String KEY_GAME_LOGIN_REFUSED_AT = "game_login_refused_at";
+    private static final long GAME_LOGIN_RETRY_MS = TimeUnit.HOURS.toMillis(6);
+    /** The cached token refused earlier in this check (never tried twice in one check). */
+    private String refusedToken;
+
+    /**
+     * Puts the game's own saved world login in jar (and caches it like our own), returning the world host;
+     * null when it isn't there, isn't the same kind as ours, has expired, or was refused lately.
+     */
+    private String seedGameLogin(SimpleCookieJar jar, long now) {
+        try {
+            SharedPreferences s = statePrefs();
+            String host = s.getString(KEY_LAST_WORLD_HOST, null);
+            long refusedAt = s.getLong(KEY_GAME_LOGIN_REFUSED_AT, 0);
+            if (host == null || (now >= refusedAt && now - refusedAt < GAME_LOGIN_RETRY_MS)) {
+                return null;
+            }
+            String saved = GameLogin.pick(TravianSession.savedSettings(getApplicationContext()),
+                    s.getString(KEY_LAST_AVATAR_UUID, null));
+            String ours = s.getString(KEY_OUR_CLAIMS, null);
+            Log.i(TAG, "game's saved login: " + GameLogin.describe(saved, ours, now));
+            String jwt = GameLogin.usable(saved, ours, now, TOKEN_MARGIN_MS);
+            if (jwt == null || jwt.equals(refusedToken)) {
+                return null;
+            }
+            s.edit().putString(KEY_WORLD_HOST, host).putString(KEY_WORLD_TOKEN, jwt)
+                    .putLong(KEY_WORLD_TOKEN_EXP, GameLogin.expiresAtMs(jwt)).apply();
+            return seedWorldToken(s, jar);
+        } catch (Exception e) {
+            Log.w(TAG, "game's saved login not usable: " + e);
+            return null;
+        }
+    }
+
     private void cacheWorldToken(SimpleCookieJar jar, String host) {
         try {
             String token = jar.getCookieValue(TravianApi.hostOf(host), "JWT");
@@ -384,6 +443,7 @@ public class NotifierWorker extends Worker {
                     .putString(KEY_WORLD_HOST, host)
                     .putString(KEY_WORLD_TOKEN, token)
                     .putLong(KEY_WORLD_TOKEN_EXP, expMs)
+                    .putString(KEY_OUR_CLAIMS, GameLogin.claimNames(token))
                     .apply();
             Log.i(TAG, "cached world token, good for " + ((expMs - System.currentTimeMillis()) / 60000) + " min");
         } catch (Exception e) {
@@ -408,6 +468,8 @@ public class NotifierWorker extends Worker {
 
     /** The world this app signed in to last; kept when the token is cleared, so the same world is picked again. */
     private static final String KEY_LAST_WORLD_HOST = "last_world_host";
+    /** The game account (avatar uuid) this app signed in with last. */
+    private static final String KEY_LAST_AVATAR_UUID = "last_avatar_uuid";
 
     private static String worldHostOf(JSONObject avatar) throws Exception {
         String url = avatar.getJSONObject("gameworld").getJSONObject("metadata").getString("url");
@@ -443,9 +505,17 @@ public class NotifierWorker extends Worker {
         if (avatars.length() == 0) {
             return null;
         }
-        // Stay on the world used last time; the first one only when there is no earlier choice.
+        // Stay on the world used last time. With no earlier choice, the account the game itself has a saved
+        // login for (its "lastCookie-<avatar uuid>" setting), else the first one.
         String lastWorld = statePrefs().getString(KEY_LAST_WORLD_HOST, null);
+        java.util.Map<String, ?> saved = TravianSession.savedSettings(getApplicationContext());
         JSONObject avatar = avatars.getJSONObject(0);
+        for (int i = 0; i < avatars.length() && lastWorld == null; i++) {
+            if (saved.containsKey(GameLogin.COOKIE_PREFIX + avatars.getJSONObject(i).optString("uuid"))) {
+                avatar = avatars.getJSONObject(i);
+                break;
+            }
+        }
         for (int i = 0; i < avatars.length() && lastWorld != null; i++) {
             if (lastWorld.equals(worldHostOf(avatars.getJSONObject(i)))) {
                 avatar = avatars.getJSONObject(i);
@@ -457,7 +527,10 @@ public class NotifierWorker extends Worker {
         }
         String avatarUuid = avatar.getString("uuid");
         String worldHost = worldHostOf(avatar);
-        statePrefs().edit().putString(KEY_LAST_WORLD_HOST, worldHost).apply();
+        statePrefs().edit().putString(KEY_LAST_WORLD_HOST, worldHost).putString(KEY_LAST_AVATAR_UUID, avatarUuid)
+                .apply();
+        Log.i(TAG, "the game has a saved login for this account: "
+                + saved.containsKey(GameLogin.COOKIE_PREFIX + avatarUuid));
 
         Request playReq = new Request.Builder()
                 .url(TravianApi.LOBBY_HOST + "/api/avatar/play/" + avatarUuid)
