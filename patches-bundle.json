@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-09-26T23:00:27",
-  "description": "## [1.26.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.25.1...v1.26.0) (2026-09-26)\n\n### ✨ New Features\n\n* **Travian: Legends:** home-screen widget ([faa7776](https://github.com/Amitaisela/travian-morphe-patches/commit/faa7776bb14ef41327506f737f2aac5826de5604))",
-  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.26.0/patches-1.26.0.mpp",
+  "created_at": "2026-09-27T08:32:17",
+  "description": "## [1.26.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.0...v1.26.1) (2026-09-27)\n\n### 🐛 Bug Fixes\n\n* **Travian: Legends:** log the game's saved setting names once (local only) ([0f58aed](https://github.com/Amitaisela/travian-morphe-patches/commit/0f58aed0f1745d79f2ebb4b50054ea1be42aa48f))\n* **Travian: Legends:** send far less to the game's servers, and look more like a player ([59bca30](https://github.com/Amitaisela/travian-morphe-patches/commit/59bca305c081b3c7233c4b11e8db18a180dcaaeb))",
+  "download_url": "https://github.com/Amitaisela/travian-morphe-patches/releases/download/v1.26.1/patches-1.26.1.mpp",
   "signature_download_url": "",
-  "version": "1.26.0"
+  "version": "1.26.1"
 }

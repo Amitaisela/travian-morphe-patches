@@ -1,3 +1,10 @@
+## [1.26.1](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.26.0...v1.26.1) (2026-09-27)
+
+### 🐛 Bug Fixes
+
+* **Travian: Legends:** log the game's saved setting names once (local only) ([0f58aed](https://github.com/Amitaisela/travian-morphe-patches/commit/0f58aed0f1745d79f2ebb4b50054ea1be42aa48f))
+* **Travian: Legends:** send far less to the game's servers, and look more like a player ([59bca30](https://github.com/Amitaisela/travian-morphe-patches/commit/59bca305c081b3c7233c4b11e8db18a180dcaaeb))
+
 ## [1.26.0](https://github.com/Amitaisela/travian-morphe-patches/compare/v1.25.1...v1.26.0) (2026-09-26)
 
 ### ✨ New Features
